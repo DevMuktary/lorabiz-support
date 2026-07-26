@@ -69,13 +69,13 @@ export default function SupportWidget() {
     if (!inputText.trim() || isClosed) return;
 
     const currentText = inputText;
-    setInputText(''); // Clear input immediately
+    setInputText(''); 
     setIsTyping(true);
 
     const activeTicketId = ticketId || `TICKET_${Date.now()}`;
     if (!ticketId) setTicketId(activeTicketId);
 
-    // OPTIMISTIC UPDATE: Add the message to the screen immediately so it doesn't disappear
+    // OPTIMISTIC UPDATE: Show message immediately
     const tempMessage: Message = {
       $id: `temp_${Date.now()}`,
       senderType: 'CUSTOMER',
@@ -110,7 +110,6 @@ export default function SupportWidget() {
       }
     } catch (error) {
       console.error('Chat Error (Check your Appwrite DB Keys/Permissions):', error);
-      // Optional: Add a system message letting the user know the message failed
     } finally {
       setIsTyping(false);
     }
@@ -145,9 +144,9 @@ export default function SupportWidget() {
   };
 
   return (
-    <div className="absolute bottom-0 right-0 w-full h-full flex flex-col items-end justify-end p-4 md:p-6">
+    <div className="absolute bottom-0 right-0 w-full h-full flex flex-col items-end justify-end p-4 md:p-6 pointer-events-none">
       {isOpen && (
-        <div className="mb-4 w-full max-w-[380px] h-[500px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#000000]/20 animate-in slide-in-from-bottom-5 fade-in duration-300">
+        <div className="mb-4 w-full max-w-[380px] h-[500px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#000000]/20 animate-in slide-in-from-bottom-5 fade-in duration-300 pointer-events-auto">
           {/* Header */}
           <div className="bg-[#000000] px-4 py-4 flex justify-between items-center text-white">
             <div className="flex items-center space-x-2">
@@ -253,7 +252,7 @@ export default function SupportWidget() {
       {/* Launcher Button */}
       <button
         onClick={() => toggleWidget(!isOpen)}
-        className="w-16 h-16 shrink-0 bg-[#000000] hover:bg-[#1a1a1a] text-[#8B2D75] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
+        className="w-16 h-16 shrink-0 bg-[#000000] hover:bg-[#1a1a1a] text-[#8B2D75] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 pointer-events-auto"
       >
         {isOpen ? (
           // The "X" Close Icon
@@ -261,12 +260,13 @@ export default function SupportWidget() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          // The Zoho-style Human Support Agent with Mic
+          // Professional Human Agent with Headset & Mic
           <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="8" r="5"></circle>
-            <path d="M20 21a8 8 0 1 0-16 0"></path>
-            <path d="M6 8a6 6 0 0 1 12 0v2a2 2 0 0 1-2 2h-1"></path>
-            <path d="M15 12v3a2 2 0 0 1-2 2"></path>
+            <path d="M15.5 22H6.5a2.5 2.5 0 0 1-2.5-2.5V17a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v2.5a2.5 2.5 0 0 1-2.5 2.5z" />
+            <circle cx="12" cy="7" r="4" />
+            <path d="M20 10v2a5 5 0 0 1-5 5" />
+            <path d="M22 10v3a2 2 0 0 1-2 2h-1v-5h3z" />
+            <path d="M12 17v-1" />
           </svg>
         )}
       </button>
