@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { client, databases } from '@/lib/appwrite-client';
-import { Query } from 'appwrite';
 
 const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
 const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
@@ -25,12 +24,21 @@ export default function SupportWidget() {
   const [isClosed, setIsClosed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to latest message
+  // Notify parent window (the main LoraBiz site) to resize the iframe
+  const toggleWidget = (newState: boolean) => {
+    setIsOpen(newState);
+    if (typeof window !== 'undefined' && window.parent) {
+      window.parent.postMessage(
+        newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', 
+        '*' // In production, replace '*' with your main LoraBiz domain for strict security
+      );
+    }
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Realtime Subscription
   useEffect(() => {
     if (!ticketId) return;
 
@@ -63,7 +71,6 @@ export default function SupportWidget() {
     setInputText('');
     setIsTyping(true);
 
-    // Generate a temporary ticket ID if none exists (in production, this maps to the logged-in user)
     const activeTicketId = ticketId || `TICKET_${Date.now()}`;
     if (!ticketId) setTicketId(activeTicketId);
 
@@ -74,8 +81,8 @@ export default function SupportWidget() {
         body: JSON.stringify({
           ticketId: activeTicketId,
           message: currentText,
-          senderId: 'USER_ID_PLACEHOLDER', // Fetch dynamically from session
-          senderName: 'Client', // Fetch dynamically from session
+          senderId: 'USER_ID_PLACEHOLDER',
+          senderName: 'Client',
         }),
       });
 
@@ -83,7 +90,6 @@ export default function SupportWidget() {
       
       const data = await response.json();
       
-      // If the ticket was previously closed, reset state
       if (data.error && data.error.includes('closed')) {
          setIsClosed(true);
       }
@@ -96,7 +102,7 @@ export default function SupportWidget() {
 
   const handleEndChat = async () => {
     if (!ticketId) {
-      setIsOpen(false);
+      toggleWidget(false);
       return;
     }
 
@@ -125,8 +131,7 @@ export default function SupportWidget() {
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
       {isOpen && (
-        <div className="mb-4 w-[380px] h-[550px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20">
-          {/* Header */}
+        <div className="mb-4 w-[380px] h-[480px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20">
           <div className="bg-[#0A192F] px-4 py-4 flex justify-between items-center text-white">
             <div className="flex items-center space-x-2">
               <div className="w-2 h-2 rounded-full bg-[#FFB300] animate-pulse"></div>
@@ -141,7 +146,7 @@ export default function SupportWidget() {
                   End Chat
                 </button>
               )}
-              <button onClick={() => setIsOpen(false)} className="text-gray-300 hover:text-white">
+              <button onClick={() => toggleWidget(false)} className="text-gray-300 hover:text-white">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -149,7 +154,6 @@ export default function SupportWidget() {
             </div>
           </div>
 
-          {/* Chat Feed */}
           <div className="flex-1 overflow-y-auto p-4 bg-[#F8FAFC] space-y-4">
             {messages.length === 0 && (
               <div className="text-center text-sm text-gray-500 mt-10">
@@ -203,7 +207,6 @@ export default function SupportWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input Area */}
           <div className="p-3 bg-white border-t border-gray-200">
             <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
               <input
@@ -228,10 +231,9 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* Launcher Button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-14 h-14 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
+        onClick={() => toggleWidget(!isOpen)}
+        className="w-14 h-14 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 pointer-events-auto"
       >
         {isOpen ? (
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
