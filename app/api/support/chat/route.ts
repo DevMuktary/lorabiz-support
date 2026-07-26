@@ -51,9 +51,8 @@ export async function POST(req: Request) {
       if (e.code === 404) {
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
           status: 'OPEN',
-          sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          sourceChannel: 'IN_APP',
+          // Appwrite handles $createdAt and $updatedAt natively
         });
       } else {
         throw e; 
@@ -74,9 +73,9 @@ export async function POST(req: Request) {
       senderType: 'CUSTOMER',
       senderId: senderId || 'ANONYMOUS',
       senderName: senderName || 'User',
-      sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
+      sourceChannel: 'IN_APP',
       content: sanitizedMessage,
-      createdAt: new Date().toISOString(),
+      // Appwrite handles $createdAt natively
     });
 
     // 4. SILENCE PROTOCOL CHECK
@@ -89,9 +88,10 @@ export async function POST(req: Request) {
     }
 
     // 5. Fetch Full Message History
+    // Using native $createdAt for sorting
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', ticketId),
-      Query.orderAsc('createdAt'),
+      Query.orderAsc('$createdAt'), 
       Query.limit(50),
     ]);
 
@@ -116,7 +116,6 @@ export async function POST(req: Request) {
       await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
         status: 'PENDING_AGENT',
         aiSummary: summary,
-        updatedAt: new Date().toISOString(),
       });
 
       await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
@@ -124,9 +123,8 @@ export async function POST(req: Request) {
         senderType: 'SYSTEM',
         senderId: 'LORA_SYSTEM',
         senderName: 'Lora',
-        sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
+        sourceChannel: 'IN_APP',
         content: handoverMessage,
-        createdAt: new Date().toISOString(),
       });
 
       return NextResponse.json({
@@ -143,9 +141,8 @@ export async function POST(req: Request) {
       senderType: 'ASSISTANT',
       senderId: 'LORA_BOT',
       senderName: 'Lora',
-      sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
+      sourceChannel: 'IN_APP',
       content: aiResponse,
-      createdAt: new Date().toISOString(),
     });
 
     return NextResponse.json({
