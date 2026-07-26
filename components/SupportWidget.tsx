@@ -35,10 +35,12 @@ export default function SupportWidget() {
     }
   };
 
+  // Auto-scroll to the latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  // Real-time Appwrite Subscription for new messages
   useEffect(() => {
     if (!ticketId) return;
 
@@ -129,9 +131,9 @@ export default function SupportWidget() {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end w-full h-full justify-end pr-2 pb-2 pointer-events-none">
+    <div className="absolute bottom-0 right-0 w-full h-full flex flex-col items-end justify-end p-4 md:p-6">
       {isOpen && (
-        <div className="mb-4 w-[380px] h-[550px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20 pointer-events-auto">
+        <div className="mb-4 w-full max-w-[380px] h-[500px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20 animate-in slide-in-from-bottom-5 fade-in duration-300">
           {/* Header */}
           <div className="bg-[#0A192F] px-4 py-4 flex justify-between items-center text-white">
             <div className="flex items-center space-x-2">
@@ -223,7 +225,7 @@ export default function SupportWidget() {
               <button
                 type="submit"
                 disabled={!inputText.trim() || isClosed}
-                className="p-2.5 bg-[#0A192F] text-[#FFB300] rounded-lg hover:bg-[#0d213f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                className="p-2.5 bg-[#0A192F] text-[#FFB300] rounded-lg hover:bg-[#0d213f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -237,7 +239,7 @@ export default function SupportWidget() {
       {/* Launcher Button */}
       <button
         onClick={() => toggleWidget(!isOpen)}
-        className="w-16 h-16 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 pointer-events-auto"
+        className="w-16 h-16 shrink-0 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
       >
         {isOpen ? (
           // The "X" Close Icon
