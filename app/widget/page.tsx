@@ -1,4 +1,6 @@
 // app/widget/page.tsx
+import SupportWidget from '@/components/SupportWidget';
+
 export default function WidgetPage() {
   return (
     <>
@@ -13,7 +15,6 @@ export default function WidgetPage() {
         }
       `}} />
       <main className="w-full h-full bg-transparent overflow-hidden">
-        {/* We dynamically import to avoid hydration mismatches with window.parent */}
         <SupportWidget />
       </main>
     </>
