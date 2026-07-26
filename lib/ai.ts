@@ -29,7 +29,7 @@ export async function processTicketWithAI(ticketId: string, conversationHistory:
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", // or deepseek-chat
-      messages: aiMessages,
+      messages: aiMessages as any, // <--- ADD "as any" HERE
       temperature: 0.3,
     });
 
