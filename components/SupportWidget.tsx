@@ -24,7 +24,6 @@ export default function SupportWidget() {
   const [isClosed, setIsClosed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Notify parent window to resize the iframe
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
     if (typeof window !== 'undefined' && window.parent) {
@@ -39,7 +38,6 @@ export default function SupportWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Real-time Appwrite Subscription
   useEffect(() => {
     if (!ticketId) return;
 
@@ -75,7 +73,6 @@ export default function SupportWidget() {
     const activeTicketId = ticketId || `TICKET_${Date.now()}`;
     if (!ticketId) setTicketId(activeTicketId);
 
-    // OPTIMISTIC UPDATE: Show message immediately
     const tempMessage: Message = {
       $id: `temp_${Date.now()}`,
       senderType: 'CUSTOMER',
@@ -109,7 +106,7 @@ export default function SupportWidget() {
          setIsClosed(true);
       }
     } catch (error) {
-      console.error('Chat Error (Check your Appwrite DB Keys/Permissions):', error);
+      console.error('Chat Error:', error);
     } finally {
       setIsTyping(false);
     }
@@ -195,18 +192,21 @@ export default function SupportWidget() {
               return (
                 <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                   <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-3 text-[14px] leading-relaxed shadow-sm ${
+                    className={`max-w-[80%] rounded-2xl px-4 py-3 text-[14px] leading-relaxed shadow-sm flex flex-col ${
                       isUser
                         ? 'bg-[#000000] text-white rounded-br-sm'
                         : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm'
                     }`}
                   >
+                    {/* The message content comes first now */}
+                    <span>{msg.content}</span>
+                    
+                    {/* The sender name is now at the bottom right of the bubble */}
                     {!isUser && (
-                      <span className="block text-[10px] font-bold text-[#8B2D75] mb-1 uppercase tracking-wider">
+                      <span className="block text-[9px] font-bold text-[#8B2D75] mt-1.5 uppercase tracking-wider text-right opacity-80">
                         {msg.senderName}
                       </span>
                     )}
-                    {msg.content}
                   </div>
                 </div>
               );
@@ -255,12 +255,10 @@ export default function SupportWidget() {
         className="w-16 h-16 shrink-0 bg-[#000000] hover:bg-[#1a1a1a] text-[#8B2D75] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 pointer-events-auto"
       >
         {isOpen ? (
-          // The "X" Close Icon
           <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          // Professional Human Agent with Headset & Mic
           <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15.5 22H6.5a2.5 2.5 0 0 1-2.5-2.5V17a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v2.5a2.5 2.5 0 0 1-2.5 2.5z" />
             <circle cx="12" cy="7" r="4" />
