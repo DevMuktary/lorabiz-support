@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { client, databases } from '@/lib/appwrite-client';
+import { client } from '@/lib/appwrite-client';
 
 const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
 const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
@@ -30,7 +30,7 @@ export default function SupportWidget() {
     if (typeof window !== 'undefined' && window.parent) {
       window.parent.postMessage(
         newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', 
-        '*' // In production, replace '*' with your main LoraBiz domain for strict security
+        '*' // In production, restrict '*' to your main LoraBiz domain for strict security
       );
     }
   };
@@ -129,9 +129,10 @@ export default function SupportWidget() {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end w-full h-full justify-end pr-2 pb-2 pointer-events-none">
       {isOpen && (
-        <div className="mb-4 w-[380px] h-[480px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20">
+        <div className="mb-4 w-[380px] h-[550px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20 pointer-events-auto">
+          {/* Header */}
           <div className="bg-[#0A192F] px-4 py-4 flex justify-between items-center text-white">
             <div className="flex items-center space-x-2">
               <div className="w-2 h-2 rounded-full bg-[#FFB300] animate-pulse"></div>
@@ -154,6 +155,7 @@ export default function SupportWidget() {
             </div>
           </div>
 
+          {/* Chat Feed */}
           <div className="flex-1 overflow-y-auto p-4 bg-[#F8FAFC] space-y-4">
             {messages.length === 0 && (
               <div className="text-center text-sm text-gray-500 mt-10">
@@ -207,6 +209,7 @@ export default function SupportWidget() {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Input Area */}
           <div className="p-3 bg-white border-t border-gray-200">
             <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
               <input
@@ -220,7 +223,7 @@ export default function SupportWidget() {
               <button
                 type="submit"
                 disabled={!inputText.trim() || isClosed}
-                className="p-2.5 bg-[#0A192F] text-[#FFB300] rounded-lg hover:bg-[#0d213f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-2.5 bg-[#0A192F] text-[#FFB300] rounded-lg hover:bg-[#0d213f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -231,17 +234,25 @@ export default function SupportWidget() {
         </div>
       )}
 
+      {/* Launcher Button */}
       <button
         onClick={() => toggleWidget(!isOpen)}
-        className="w-14 h-14 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 pointer-events-auto"
+        className="w-16 h-16 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 pointer-events-auto"
       >
         {isOpen ? (
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          // The "X" Close Icon
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          // The Headset/Mic Support Icon
+          <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+            <path d="M19 22v-3"></path>
+            <path d="M5 22v-3"></path>
+            <path d="M21 14a9 9 0 0 0-18 0"></path>
+            <path d="M14 20h2"></path>
           </svg>
         )}
       </button>
