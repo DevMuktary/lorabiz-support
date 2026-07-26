@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { Client, Databases, Storage, Query, ID } from 'node-appwrite'; // <-- Changed to node-appwrite
+import { Client, Databases, Storage, Query, ID } from 'node-appwrite';
 import { processTicketWithAI } from '@/lib/ai';
 
-// Initialize Appwrite with ADMIN privileges
+// Initialize Appwrite with ADMIN privileges (Bypasses all client-side blocks)
 const adminClient = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!)
-  .setKey(process.env.APPWRITE_SECRET_KEY!); // <-- Your new secret key
+  .setKey(process.env.APPWRITE_SECRET_KEY!);
 
 const databases = new Databases(adminClient);
 const storage = new Storage(adminClient);
@@ -16,6 +16,16 @@ const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID!;
 const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID!;
 const bucketId = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID!;
 
+// --- GET: META VERIFICATION HANDSHAKE ---
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  if (url.searchParams.get("hub.mode") === "subscribe") {
+    return new Response(url.searchParams.get("hub.challenge"), { status: 200 });
+  }
+  return new Response("Webhook Active", { status: 200 });
+}
+
+// --- POST: INCOMING WHATSAPP MESSAGES ---
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -90,7 +100,7 @@ export async function POST(req: Request) {
           attachmentUrl
         });
 
-        // --- 4. THE AI BRAIN (Only if status is AI_HANDLING) ---
+        // --- 4. THE AI BRAIN ---
         const currentTicket = await databases.getDocument(dbId, ticketsCol, ticketId);
         
         if (currentTicket.status === 'AI_HANDLING') {
@@ -107,12 +117,33 @@ export async function POST(req: Request) {
           await databases.createDocument(dbId, messagesCol, ID.unique(), {
             ticketId,
             senderType: 'AI',
-            senderName: 'Lora Assistant',
+            senderName: 'AI Assistant',
             content: aiResponseText
           });
 
-          // TODO: Trigger WhatsApp API to actually send `aiResponseText` back to the user's phone
-          // await sendWhatsAppMessage(customerPhone, aiResponseText);
+          // Send the AI response back to the customer's WhatsApp
+          const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+          const metaToken = process.env.WHATSAPP_TOKEN;
+
+          if (phoneNumberId && metaToken) {
+            await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${metaToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                recipient_type: "individual",
+                to: customerPhone.replace("+", ""), // Meta expects no plus sign
+                type: "text",
+                text: {
+                  preview_url: true,
+                  body: aiResponseText,
+                },
+              }),
+            });
+          }
         }
       }
     }
