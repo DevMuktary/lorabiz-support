@@ -8,44 +8,48 @@
   const container = document.createElement('div');
   container.id = 'lorabiz-support-widget-container';
   
-  // No pointer-events hacks. The container is exactly the size of the button.
+  // Set to max z-index but keep width/height minimal when closed to prevent overlapping
   Object.assign(container.style, {
     position: 'fixed',
-    bottom: '0',
-    right: '0',
-    width: '100px', 
-    height: '100px',
-    zIndex: '999999',
+    bottom: '24px', // Lifted slightly off the exact bottom edge
+    right: '24px',  // Lifted slightly off the exact right edge
+    width: '80px',  // Tightly hug the icon
+    height: '80px', // Tightly hug the icon
+    zIndex: '2147483647', // Maximum possible z-index
     border: 'none',
     overflow: 'hidden',
-    transition: 'width 0.3s ease, height 0.3s ease', // Smooth resizing
+    transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    pointerEvents: 'none', // Critical: Let clicks pass through the container box
   });
 
   const iframe = document.createElement('iframe');
   iframe.src = `${SUPPORT_URL}/widget`;
   iframe.id = 'lorabiz-support-iframe';
   
+  // CRITICAL: Force the browser to allow a transparent iframe
+  iframe.setAttribute('allowtransparency', 'true');
+  
   Object.assign(iframe.style, {
     width: '100%',
     height: '100%',
     border: 'none',
     backgroundColor: 'transparent',
+    pointerEvents: 'auto', // Re-enable clicks ONLY inside the actual widget iframe
+    colorScheme: 'normal',
   });
 
   container.appendChild(iframe);
   document.body.appendChild(container);
 
   window.addEventListener('message', function (event) {
-    // Uncomment this strict origin check when deploying to production!
-    // if (event.origin !== SUPPORT_URL) return; 
-    
     if (event.data === 'LORA_WIDGET_CLOSED') {
-      container.style.width = '100px';
-      container.style.height = '100px';
+      container.style.width = '80px';
+      container.style.height = '80px';
     }
     if (event.data === 'LORA_WIDGET_OPENED') {
-      container.style.width = '420px'; 
-      container.style.height = '600px'; 
+      // Expand exactly enough to fit the open chat
+      container.style.width = '400px'; 
+      container.style.height = '580px'; 
     }
   });
 })();
