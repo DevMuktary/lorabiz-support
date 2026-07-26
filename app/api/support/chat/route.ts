@@ -23,7 +23,7 @@ const MAX_MESSAGE_LENGTH = 2000;
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { ticketId, message, senderId, senderName } = body;
+    const { ticketId, message, senderName } = body;
 
     // 1. Strict Input Validation
     if (!ticketId || typeof ticketId !== 'string') {
@@ -52,7 +52,6 @@ export async function POST(req: Request) {
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
           status: 'OPEN',
           sourceChannel: 'IN_APP',
-          // Appwrite handles $createdAt and $updatedAt natively
         });
       } else {
         throw e; 
@@ -71,11 +70,9 @@ export async function POST(req: Request) {
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
       ticketId,
       senderType: 'CUSTOMER',
-      senderId: senderId || 'ANONYMOUS',
       senderName: senderName || 'User',
       sourceChannel: 'IN_APP',
       content: sanitizedMessage,
-      // Appwrite handles $createdAt natively
     });
 
     // 4. SILENCE PROTOCOL CHECK
@@ -88,7 +85,6 @@ export async function POST(req: Request) {
     }
 
     // 5. Fetch Full Message History
-    // Using native $createdAt for sorting
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', ticketId),
       Query.orderAsc('$createdAt'), 
@@ -121,8 +117,7 @@ export async function POST(req: Request) {
       await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
         ticketId,
         senderType: 'SYSTEM',
-        senderId: 'LORA_SYSTEM',
-        senderName: 'Lora',
+        senderName: 'System',
         sourceChannel: 'IN_APP',
         content: handoverMessage,
       });
@@ -139,7 +134,6 @@ export async function POST(req: Request) {
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
       ticketId,
       senderType: 'ASSISTANT',
-      senderId: 'LORA_BOT',
       senderName: 'Lora',
       sourceChannel: 'IN_APP',
       content: aiResponse,
