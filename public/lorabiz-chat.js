@@ -8,25 +8,26 @@
   const container = document.createElement('div');
   container.id = 'lorabiz-support-widget-container';
   
-  // Set to max z-index but keep width/height minimal when closed to prevent overlapping
   Object.assign(container.style, {
     position: 'fixed',
-    bottom: '24px', // Lifted slightly off the exact bottom edge
-    right: '24px',  // Lifted slightly off the exact right edge
-    width: '80px',  // Tightly hug the icon
-    height: '80px', // Tightly hug the icon
-    zIndex: '2147483647', // Maximum possible z-index
+    bottom: '24px', 
+    right: '24px',  
+    width: '80px',  
+    height: '80px', 
+    zIndex: '2147483647', 
     border: 'none',
     overflow: 'hidden',
     transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    pointerEvents: 'none', // Critical: Let clicks pass through the container box
+    pointerEvents: 'none',
+    // Safari-specific fixes to enforce rendering priority
+    WebkitTransform: 'translateZ(0)',
+    transform: 'translateZ(0)',
   });
 
   const iframe = document.createElement('iframe');
   iframe.src = `${SUPPORT_URL}/widget`;
   iframe.id = 'lorabiz-support-iframe';
   
-  // CRITICAL: Force the browser to allow a transparent iframe
   iframe.setAttribute('allowtransparency', 'true');
   
   Object.assign(iframe.style, {
@@ -34,7 +35,7 @@
     height: '100%',
     border: 'none',
     backgroundColor: 'transparent',
-    pointerEvents: 'auto', // Re-enable clicks ONLY inside the actual widget iframe
+    pointerEvents: 'auto', 
     colorScheme: 'normal',
   });
 
@@ -47,7 +48,6 @@
       container.style.height = '80px';
     }
     if (event.data === 'LORA_WIDGET_OPENED') {
-      // Expand exactly enough to fit the open chat
       container.style.width = '400px'; 
       container.style.height = '580px'; 
     }
