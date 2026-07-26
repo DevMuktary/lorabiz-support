@@ -152,7 +152,7 @@ export default function DashboardPage() {
             <MessageSquare className="w-5 h-5 text-indigo-600" />
             <h1 className="font-semibold text-lg">Inbox</h1>
           </div>
-          <UserButton afterSignOutUrl="/" />
+          <UserButton />
         </header>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -273,7 +273,7 @@ export default function DashboardPage() {
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-slate-50/50">
             <MessageSquare className="w-16 h-16 mb-4 opacity-20" />
-            <p className="text-lg font-medium text-slate-600">No conversation selected</p>
+            <p className="text-lg font-medium text-slate-600">No conversation selected yet</p>
             <p className="text-sm">Choose a ticket from the inbox to start replying.</p>
           </div>
         )}
