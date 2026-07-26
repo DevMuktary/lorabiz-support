@@ -6,7 +6,6 @@ import { processTicketWithAI } from '@/lib/ai';
 import { summarizeChatForAgent } from '@/lib/ai-summarizer';
 import { checkBusinessHours } from '@/lib/business-hours';
 
-// Initialize Secure Server-Side Appwrite Client
 const client = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || '')
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '')
@@ -23,9 +22,8 @@ const MAX_MESSAGE_LENGTH = 2000;
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { ticketId, message, senderName } = body;
+    const { ticketId, message, senderId, senderName } = body;
 
-    // 1. Strict Input Validation
     if (!ticketId || typeof ticketId !== 'string') {
       return NextResponse.json({ error: 'Invalid or missing ticketId' }, { status: 400 });
     }
@@ -43,7 +41,6 @@ export async function POST(req: Request) {
 
     const sanitizedMessage = message.trim();
 
-    // 2. Ensure Ticket Exists (Create if it doesn't)
     let ticket;
     try {
       ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
@@ -58,7 +55,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // Prevent interactions on resolved/closed tickets
     if (ticket.status === 'CLOSED') {
       return NextResponse.json(
         { error: 'This ticket is closed. Please open a new inquiry.' },
@@ -66,16 +62,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Save User Message to Database
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
       ticketId,
       senderType: 'CUSTOMER',
+      senderId: senderId || 'ANONYMOUS',
       senderName: senderName || 'User',
       sourceChannel: 'IN_APP',
       content: sanitizedMessage,
     });
 
-    // 4. SILENCE PROTOCOL CHECK
     if (ticket.status === 'PENDING_AGENT' || ticket.status === 'IN_PROGRESS') {
       return NextResponse.json({
         status: 'RECEIVED',
@@ -84,7 +79,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 5. Fetch Full Message History
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', ticketId),
       Query.orderAsc('$createdAt'), 
@@ -96,17 +90,16 @@ export async function POST(req: Request) {
       content: doc.content,
     }));
 
-    // 6. Execute AI Engine
     const aiResponse = await processTicketWithAI(ticketId, formattedHistory);
 
-    // 7. Handle Agent Handover
     if (aiResponse.includes('TRIGGER_HANDOVER')) {
       const hoursStatus = checkBusinessHours();
       const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
       const summary = await summarizeChatForAgent(transcript);
 
+      // UPDATED QUEUE MESSAGE
       const handoverMessage = hoursStatus.isOnline
-        ? 'I am now connecting you with a human support agent. Please hold while an agent reviews your request.'
+        ? 'I have added you to our support queue. A human agent will connect and message you very soon.'
         : hoursStatus.message;
 
       await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
@@ -117,6 +110,7 @@ export async function POST(req: Request) {
       await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
         ticketId,
         senderType: 'SYSTEM',
+        senderId: 'LORA_SYSTEM',
         senderName: 'System',
         sourceChannel: 'IN_APP',
         content: handoverMessage,
@@ -130,10 +124,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // 8. Normal AI Reply
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
       ticketId,
       senderType: 'ASSISTANT',
+      senderId: 'LORA_BOT',
       senderName: 'Lora',
       sourceChannel: 'IN_APP',
       content: aiResponse,
@@ -146,7 +140,6 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('[SUPPORT_CHAT_API_ERROR]:', error);
-
     return NextResponse.json(
       { error: `DEBUG INFO: ${error.message || error}` },
       { status: 500 }
