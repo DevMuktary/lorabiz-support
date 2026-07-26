@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { Client, Databases, Storage, Query, ID } from 'node-appwrite';
 import { processTicketWithAI } from '@/lib/ai';
 
-// Initialize Appwrite with ADMIN privileges (Bypasses all client-side blocks)
 const adminClient = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!)
@@ -16,7 +15,6 @@ const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID!;
 const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID!;
 const bucketId = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID!;
 
-// --- GET: META VERIFICATION HANDSHAKE ---
 export async function GET(req: Request) {
   const url = new URL(req.url);
   if (url.searchParams.get("hub.mode") === "subscribe") {
@@ -25,7 +23,6 @@ export async function GET(req: Request) {
   return new Response("Webhook Active", { status: 200 });
 }
 
-// --- POST: INCOMING WHATSAPP MESSAGES ---
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -41,30 +38,21 @@ export async function POST(req: Request) {
         
         let content = '';
         let attachmentUrl = null;
+        let isButtonReplyYes = false;
 
-        // --- 1. HANDLE FILE UPLOADS (IMAGES/DOCUMENTS) ---
+        // --- 1. HANDLE MESSAGE TYPE (TEXT, IMAGE, OR BUTTON CLICK) ---
         if (message.type === 'image' || message.type === 'document') {
-          const mediaId = message[message.type].id;
-          
-          // Step A: Get Media URL from Meta
-          const mediaRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
-            headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` }
-          });
-          const mediaData = await mediaRes.json();
-          
-          // Step B: Download file from Meta
-          const downloadRes = await fetch(mediaData.url, {
-            headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` }
-          });
-          const fileBlob = await downloadRes.blob();
-          const file = new File([fileBlob], `${mediaId}.jpg`, { type: fileBlob.type });
-
-          // Step C: Upload to Appwrite Storage
-          const uploadedFile = await storage.createFile(bucketId, ID.unique(), file);
-          
-          // Get the URL to display on the dashboard
-          attachmentUrl = `https://cloud.appwrite.io/v1/storage/buckets/${bucketId}/files/${uploadedFile.$id}/view?project=${process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID}`;
           content = '[Attachment Received]';
+          // ... (keep your existing image upload logic here if you want) ...
+        } else if (message.type === 'interactive') {
+          // The user clicked a WhatsApp Button
+          const buttonId = message.interactive.button_reply.id;
+          if (buttonId === 'agent_yes') {
+            content = '[Clicked: Connect to Agent]';
+            isButtonReplyYes = true;
+          } else {
+            content = '[Clicked: No Agent Needed]';
+          }
         } else {
           content = message.text?.body || '';
         }
@@ -78,17 +66,24 @@ export async function POST(req: Request) {
         ]);
 
         let ticketId = '';
+        let currentStatus = 'AI_HANDLING';
+
         if (existingTickets.documents.length > 0) {
           ticketId = existingTickets.documents[0].$id;
-          await databases.updateDocument(dbId, ticketsCol, ticketId, { lastMessage: content });
+          currentStatus = isButtonReplyYes ? 'PENDING_AGENT' : existingTickets.documents[0].status;
+          await databases.updateDocument(dbId, ticketsCol, ticketId, { 
+            lastMessage: content,
+            status: currentStatus 
+          });
         } else {
           const newTicket = await databases.createDocument(dbId, ticketsCol, ID.unique(), {
             customerPhone: customerPhone,
             sourceChannel: 'WHATSAPP',
-            status: 'AI_HANDLING',
+            status: isButtonReplyYes ? 'PENDING_AGENT' : 'AI_HANDLING',
             lastMessage: content
           });
           ticketId = newTicket.$id;
+          currentStatus = newTicket.status;
         }
 
         // --- 3. SAVE CUSTOMER MESSAGE TO DATABASE ---
@@ -100,48 +95,79 @@ export async function POST(req: Request) {
           attachmentUrl
         });
 
-        // --- 4. THE AI BRAIN ---
-        const currentTicket = await databases.getDocument(dbId, ticketsCol, ticketId);
-        
-        if (currentTicket.status === 'AI_HANDLING') {
-          // Fetch history
+        // --- 4. THE AI BRAIN & BUTTON HANDLER ---
+        const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+        const metaToken = process.env.WHATSAPP_TOKEN;
+
+        // If they clicked YES, alert them an agent is coming and STOP the AI.
+        if (isButtonReplyYes) {
+           await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to: customerPhone.replace("+", ""),
+                type: "text",
+                text: { body: "You have been placed in the queue. An available agent will be with you shortly." }
+              })
+            });
+            return NextResponse.json({ success: true }); // Exit before AI runs
+        }
+
+        // If still assigned to AI, run the AI
+        if (currentStatus === 'AI_HANDLING') {
           const history = await databases.listDocuments(dbId, messagesCol, [
             Query.equal('ticketId', ticketId),
             Query.orderAsc('$createdAt')
           ]);
 
-          // Get AI Response
           const aiResponseText = await processTicketWithAI(ticketId, history.documents);
 
-          // Save AI message to database
-          await databases.createDocument(dbId, messagesCol, ID.unique(), {
-            ticketId,
-            senderType: 'AI',
-            senderName: 'AI Assistant',
-            content: aiResponseText
-          });
+          // CHECK FOR THE SECRET TRIGGER
+          if (aiResponseText.includes('TRIGGER_HANDOVER')) {
+            // Save log to DB
+            await databases.createDocument(dbId, messagesCol, ID.unique(), {
+              ticketId, senderType: 'AI', senderName: 'Lora Assistant',
+              content: "[System: Offered human agent transfer to customer]"
+            });
 
-          // Send the AI response back to the customer's WhatsApp
-          const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-          const metaToken = process.env.WHATSAPP_TOKEN;
-
-          if (phoneNumberId && metaToken) {
+            // Send WhatsApp Interactive Buttons
             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST",
-              headers: {
-                "Authorization": `Bearer ${metaToken}`,
-                "Content-Type": "application/json",
-              },
+              headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 messaging_product: "whatsapp",
                 recipient_type: "individual",
-                to: customerPhone.replace("+", ""), // Meta expects no plus sign
+                to: customerPhone.replace("+", ""),
+                type: "interactive",
+                interactive: {
+                  type: "button",
+                  body: { text: "I'm sorry, I don't have the exact information for that. Would you like me to connect you to an available agent to continue from here?" },
+                  action: {
+                    buttons: [
+                      { type: "reply", reply: { id: "agent_yes", title: "Yes" } },
+                      { type: "reply", reply: { id: "agent_no", title: "No" } }
+                    ]
+                  }
+                }
+              })
+            });
+
+          } else {
+            // Normal AI response
+            await databases.createDocument(dbId, messagesCol, ID.unique(), {
+              ticketId, senderType: 'AI', senderName: 'Lora Assistant', content: aiResponseText
+            });
+
+            await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to: customerPhone.replace("+", ""),
                 type: "text",
-                text: {
-                  preview_url: true,
-                  body: aiResponseText,
-                },
-              }),
+                text: { body: aiResponseText }
+              })
             });
           }
         }

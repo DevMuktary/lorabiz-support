@@ -1,55 +1,37 @@
 import OpenAI from 'openai';
-import { databases } from '@/lib/appwrite';
 
-// Initialize OpenAI (You can swap the baseURL for DeepSeek if you prefer)
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, 
-  // baseURL: "https://api.deepseek.com/v1", // Uncomment if using DeepSeek
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-const dbId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
-const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID!;
+export async function processTicketWithAI(ticketId: string, history: any[]) {
+  const systemPrompt = {
+    role: 'system',
+    content: `You are Lora, the official support bot for LoraBiz.
+CRITICAL RULES:
+1. You ONLY answer basic questions about LoraBiz services (Business Name Registration, LLC, Tax compliance).
+2. NEVER search the internet, give generic advice, or invent answers. You are a closed system.
+3. If the user asks ANYTHING outside your strict knowledge, or if you don't know the exact answer, you MUST reply with exactly this phrase and nothing else: TRIGGER_HANDOVER
+4. Keep answers short and professional.`
+  };
 
-export async function processTicketWithAI(ticketId: string, conversationHistory: any[]) {
+  const mappedHistory = history.map((msg: any) => ({
+    role: msg.senderType === 'CUSTOMER' ? 'user' : 'assistant',
+    content: msg.content
+  }));
+
+  const aiMessages = [systemPrompt, ...mappedHistory];
+
   try {
-    // Format history for the AI
-    const aiMessages = conversationHistory.map(msg => ({
-      role: msg.senderType === 'CUSTOMER' ? 'user' : 'assistant',
-      content: msg.content
-    }));
-
-    // Add the System Prompt (The Rules for the AI)
-    aiMessages.unshift({
-      role: 'system',
-      content: `You are the LoraBiz Support Assistant. Your job is to help users with basic queries. 
-      If the user is asking something complex, asking about payments, or seems angry, you MUST reply with EXACTLY this phrase: 
-      "ESCALATE_TO_HUMAN". Do not say anything else. 
-      If you can help them, provide a friendly, helpful response.`
-    });
-
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // or deepseek-chat
-      messages: aiMessages as any, // <--- ADD "as any" HERE
-      temperature: 0.3,
+      model: "gpt-4o-mini",
+      messages: aiMessages as any,
+      temperature: 0.1, // Ultra-strict, no creative guessing
     });
 
-    const aiResponse = completion.choices[0].message.content || '';
-
-    // Check if the AI decided to escalate
-    if (aiResponse.includes('ESCALATE_TO_HUMAN')) {
-      // Update ticket to need a human
-      await databases.updateDocument(dbId, ticketsCol, ticketId, {
-        status: 'PENDING_AGENT',
-        lastMessage: 'Agent requested by AI.'
-      });
-      return "I'm connecting you with a human agent who can help you better. Please hold on a moment.";
-    }
-
-    // Otherwise, return the AI's actual answer
-    return aiResponse;
-
+    return completion.choices[0].message.content || "TRIGGER_HANDOVER";
   } catch (error) {
-    console.error("AI Processing Error:", error);
-    return "I'm having a little trouble thinking right now. Let me connect you to a human agent.";
+    console.error("OpenAI Error:", error);
+    return "TRIGGER_HANDOVER"; // Default to human on failure
   }
 }
