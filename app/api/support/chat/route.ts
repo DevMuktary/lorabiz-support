@@ -14,7 +14,6 @@ const client = new Client()
 
 const databases = new Databases(client);
 
-// Check both NEXT_PUBLIC and standard server-side env vars to ensure we catch the right one
 const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
 const TICKETS_COLLECTION_ID = process.env.APPWRITE_TICKETS_COLLECTION_ID || process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
 const MESSAGES_COLLECTION_ID = process.env.APPWRITE_MESSAGES_COLLECTION_ID || process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
@@ -49,15 +48,15 @@ export async function POST(req: Request) {
     try {
       ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
     } catch (e: any) {
-      // If document is not found, we create a new ticket automatically
       if (e.code === 404) {
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
           status: 'OPEN',
+          sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
       } else {
-        throw e; // Throw permission/DB errors down to the main catch block
+        throw e; 
       }
     }
 
@@ -75,6 +74,7 @@ export async function POST(req: Request) {
       senderType: 'CUSTOMER',
       senderId: senderId || 'ANONYMOUS',
       senderName: senderName || 'User',
+      sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
       content: sanitizedMessage,
       createdAt: new Date().toISOString(),
     });
@@ -124,6 +124,7 @@ export async function POST(req: Request) {
         senderType: 'SYSTEM',
         senderId: 'LORA_SYSTEM',
         senderName: 'Lora',
+        sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
         content: handoverMessage,
         createdAt: new Date().toISOString(),
       });
@@ -142,6 +143,7 @@ export async function POST(req: Request) {
       senderType: 'ASSISTANT',
       senderId: 'LORA_BOT',
       senderName: 'Lora',
+      sourceChannel: 'IN_APP', // Added to satisfy your Appwrite schema
       content: aiResponse,
       createdAt: new Date().toISOString(),
     });
@@ -154,9 +156,6 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('[SUPPORT_CHAT_API_ERROR]:', error);
 
-    // EXPOSING THE ERROR FOR DEBUGGING:
-    // This forces the actual backend error to the frontend so you can see if it's 
-    // a missing Appwrite Permission, missing DB, or OpenAI failing.
     return NextResponse.json(
       { error: `DEBUG INFO: ${error.message || error}` },
       { status: 500 }
