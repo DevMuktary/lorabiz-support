@@ -24,23 +24,22 @@ export default function SupportWidget() {
   const [isClosed, setIsClosed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Notify parent window (the main LoraBiz site) to resize the iframe
+  // Notify parent window to resize the iframe
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
     if (typeof window !== 'undefined' && window.parent) {
       window.parent.postMessage(
         newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', 
-        '*' // In production, restrict '*' to your main LoraBiz domain for strict security
+        '*' 
       );
     }
   };
 
-  // Auto-scroll to the latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Real-time Appwrite Subscription for new messages
+  // Real-time Appwrite Subscription
   useEffect(() => {
     if (!ticketId) return;
 
@@ -70,11 +69,22 @@ export default function SupportWidget() {
     if (!inputText.trim() || isClosed) return;
 
     const currentText = inputText;
-    setInputText('');
+    setInputText(''); // Clear input immediately
     setIsTyping(true);
 
     const activeTicketId = ticketId || `TICKET_${Date.now()}`;
     if (!ticketId) setTicketId(activeTicketId);
+
+    // OPTIMISTIC UPDATE: Add the message to the screen immediately so it doesn't disappear
+    const tempMessage: Message = {
+      $id: `temp_${Date.now()}`,
+      senderType: 'CUSTOMER',
+      senderName: 'Client',
+      content: currentText,
+      createdAt: new Date().toISOString(),
+    };
+    
+    setMessages((prev) => [...prev, tempMessage]);
 
     try {
       const response = await fetch('/api/support/chat', {
@@ -88,15 +98,19 @@ export default function SupportWidget() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to send message');
-      
       const data = await response.json();
+
+      if (!response.ok) {
+        console.error('API Error Response:', data);
+        throw new Error(data.error || 'Failed to send message');
+      }
       
       if (data.error && data.error.includes('closed')) {
          setIsClosed(true);
       }
     } catch (error) {
-      console.error('Chat Error:', error);
+      console.error('Chat Error (Check your Appwrite DB Keys/Permissions):', error);
+      // Optional: Add a system message letting the user know the message failed
     } finally {
       setIsTyping(false);
     }
@@ -133,18 +147,18 @@ export default function SupportWidget() {
   return (
     <div className="absolute bottom-0 right-0 w-full h-full flex flex-col items-end justify-end p-4 md:p-6">
       {isOpen && (
-        <div className="mb-4 w-full max-w-[380px] h-[500px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#0A192F]/20 animate-in slide-in-from-bottom-5 fade-in duration-300">
+        <div className="mb-4 w-full max-w-[380px] h-[500px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[#000000]/20 animate-in slide-in-from-bottom-5 fade-in duration-300">
           {/* Header */}
-          <div className="bg-[#0A192F] px-4 py-4 flex justify-between items-center text-white">
+          <div className="bg-[#000000] px-4 py-4 flex justify-between items-center text-white">
             <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 rounded-full bg-[#FFB300] animate-pulse"></div>
+              <div className="w-2 h-2 rounded-full bg-[#8B2D75] animate-pulse"></div>
               <h3 className="font-semibold text-[15px] tracking-wide">LoraBiz Support</h3>
             </div>
             <div className="flex space-x-3 items-center">
               {!isClosed && (
                 <button
                   onClick={handleEndChat}
-                  className="text-xs text-[#FFB300] hover:text-white transition-colors uppercase tracking-wider font-semibold"
+                  className="text-xs text-[#8B2D75] hover:text-white transition-colors uppercase tracking-wider font-semibold"
                 >
                   End Chat
                 </button>
@@ -184,12 +198,12 @@ export default function SupportWidget() {
                   <div
                     className={`max-w-[80%] rounded-2xl px-4 py-3 text-[14px] leading-relaxed shadow-sm ${
                       isUser
-                        ? 'bg-[#0A192F] text-white rounded-br-sm'
+                        ? 'bg-[#000000] text-white rounded-br-sm'
                         : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm'
                     }`}
                   >
                     {!isUser && (
-                      <span className="block text-[10px] font-bold text-[#FFB300] mb-1 uppercase tracking-wider">
+                      <span className="block text-[10px] font-bold text-[#8B2D75] mb-1 uppercase tracking-wider">
                         {msg.senderName}
                       </span>
                     )}
@@ -202,9 +216,9 @@ export default function SupportWidget() {
             {isTyping && (
               <div className="flex justify-start">
                 <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3 flex space-x-1 items-center">
-                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                 </div>
               </div>
             )}
@@ -220,12 +234,12 @@ export default function SupportWidget() {
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isClosed}
                 placeholder={isClosed ? "Chat ended." : "Type your message..."}
-                className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-[#0A192F] focus:border-[#0A192F] block w-full p-2.5 disabled:opacity-50"
+                className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-[#000000] focus:border-[#000000] block w-full p-2.5 disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={!inputText.trim() || isClosed}
-                className="p-2.5 bg-[#0A192F] text-[#FFB300] rounded-lg hover:bg-[#0d213f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
+                className="p-2.5 bg-[#000000] text-[#8B2D75] rounded-lg hover:bg-[#1a1a1a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -239,7 +253,7 @@ export default function SupportWidget() {
       {/* Launcher Button */}
       <button
         onClick={() => toggleWidget(!isOpen)}
-        className="w-16 h-16 shrink-0 bg-[#0A192F] hover:bg-[#0d213f] text-[#FFB300] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
+        className="w-16 h-16 shrink-0 bg-[#000000] hover:bg-[#1a1a1a] text-[#8B2D75] rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
       >
         {isOpen ? (
           // The "X" Close Icon
@@ -247,14 +261,12 @@ export default function SupportWidget() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          // The Headset/Mic Support Icon
-          <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
-            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
-            <path d="M19 22v-3"></path>
-            <path d="M5 22v-3"></path>
-            <path d="M21 14a9 9 0 0 0-18 0"></path>
-            <path d="M14 20h2"></path>
+          // The Zoho-style Human Support Agent with Mic
+          <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="8" r="5"></circle>
+            <path d="M20 21a8 8 0 1 0-16 0"></path>
+            <path d="M6 8a6 6 0 0 1 12 0v2a2 2 0 0 1-2 2h-1"></path>
+            <path d="M15 12v3a2 2 0 0 1-2 2"></path>
           </svg>
         )}
       </button>
