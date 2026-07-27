@@ -43,56 +43,69 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // AUTH HANDSHAKE: Listen for user details from main app
+  // THE SAFARI FIX: Aggressive Polling Handshake
   useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data?.type === 'LORA_INIT_AUTH' && event.data.payload) {
-        const { userId, name, email } = event.data.payload;
-        
-        if (userId) setAuthUserId(userId);
-        
-        // Autofill form
-        setUserDetails(prev => ({ 
-          ...prev, 
-          name: name || prev.name, 
-          email: email || prev.email 
-        }));
+    let pingInterval: NodeJS.Timeout;
 
-        // Fetch active session from API
-        if (userId) {
-          try {
-            const res = await fetch('/api/support/chat', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'INIT_SESSION', userId })
-            });
-            const data = await res.json();
-            
-            if (data.status === 'SUCCESS' && data.ticketId) {
-              setActiveTicketId(data.ticketId);
-              setMessages(data.messages || []);
-              setHistoryTickets([{ $id: data.ticketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
-            }
-          } catch (err) {}
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type === 'LORA_INIT_AUTH') {
+        
+        // Stop pinging Safari because we finally received data
+        clearInterval(pingInterval);
+        
+        const payload = event.data.payload;
+        if (payload) {
+          if (payload.userId) setAuthUserId(payload.userId);
+          
+          setUserDetails(prev => ({ 
+            ...prev, 
+            name: payload.name || prev.name, 
+            email: payload.email || prev.email 
+          }));
+
+          if (payload.userId) {
+            try {
+              const res = await fetch('/api/support/chat', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'INIT_SESSION', userId: payload.userId })
+              });
+              const data = await res.json();
+              
+              if (data.status === 'SUCCESS' && data.ticketId) {
+                setActiveTicketId(data.ticketId);
+                setMessages(data.messages || []);
+                setHistoryTickets([{ $id: data.ticketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
+              }
+            } catch (err) {}
+          }
         }
         setIsInitializing(false);
       }
     };
     
     window.addEventListener('message', handleMessage);
-    // Tell parent we are ready for Auth Data
+    
+    // Aggressively ping parent to bypass Safari iframe drops
     if (typeof window !== 'undefined' && window.parent) {
-      window.parent.postMessage('LORA_WIDGET_READY', '*');
+      pingInterval = setInterval(() => {
+        window.parent.postMessage('LORA_WIDGET_READY', '*');
+      }, 500);
     }
     
-    // Fallback if parent doesn't reply quickly
-    const timeout = setTimeout(() => setIsInitializing(false), 2500);
+    // Safety fallback: give up after 3 seconds
+    const timeout = setTimeout(() => {
+      clearInterval(pingInterval);
+      setIsInitializing(false);
+    }, 3000);
+
     return () => {
       window.removeEventListener('message', handleMessage);
+      clearInterval(pingInterval);
       clearTimeout(timeout);
     };
   }, []);
 
-  // Secure API Polling for History
+  // Secure API Polling & Auto-Kick Logic
   useEffect(() => {
     if (!activeTicketId) return;
 
@@ -106,13 +119,19 @@ export default function SupportWidget() {
         if (data.messages) {
           setMessages(prev => {
              const serverIds = new Set(data.messages.map((m: any) => m.$id));
-             // Prevent duplicates: keep only messages that haven't hit server yet
              const inFlight = prev.filter(m => !serverIds.has(m.$id) && m.senderType === 'CUSTOMER');
              return [...data.messages, ...inFlight];
           });
           
           if (data.ticketStatus) {
             setHistoryTickets([{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
+            
+            // LIFECYCLE FIX: If Agent closed it remotely, kick the user out of the chat
+            if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
+               alert("This conversation has been closed by the support team.");
+               setView('HUB');
+               setActiveTicketId(null);
+            }
           }
         }
       } catch (err) {}
@@ -151,6 +170,29 @@ export default function SupportWidget() {
     }
   };
 
+  // LIFECYCLE FIX: User manually ending chat
+  const handleEndChat = async () => {
+    if (!activeTicketId) return;
+    
+    const confirmEnd = window.confirm("Are you sure you want to end this conversation? It will be permanently closed.");
+    if (!confirmEnd) return;
+
+    // Optimistically clean up UI instantly
+    setView('HUB');
+    setHistoryTickets(prev => prev.map(t => t.$id === activeTicketId ? { ...t, status: 'CLOSED' } : t));
+    const closingTicketId = activeTicketId;
+    setActiveTicketId(null);
+
+    try {
+      await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'CLOSE_TICKET', ticketId: closingTicketId })
+      });
+    } catch (err) {
+      console.error("Failed to close ticket", err);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       if (e.target.files[0].size > 5 * 1024 * 1024) { alert("File must be less than 5MB"); return; }
@@ -175,7 +217,7 @@ export default function SupportWidget() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ticketId: newTicketId, 
-          userId: authUserId, // Pass authenticated user ID
+          userId: authUserId, 
           message: systemContextMessage, 
           senderName: userDetails.name, 
           customerEmail: userDetails.email 
@@ -194,7 +236,6 @@ export default function SupportWidget() {
     const messageId = ID.unique(); 
     setInputText(''); 
     
-    // Render instantly with client ID
     setMessages((prev) => [...prev, {
       $id: messageId, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
       content: currentText, attachmentUrl: selectedFile ? URL.createObjectURL(selectedFile) : undefined
@@ -220,7 +261,7 @@ export default function SupportWidget() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ticketId: activeTicketId, 
-          messageId, // Send client ID to backend
+          messageId, 
           userId: authUserId,
           message: currentText, 
           senderName: userDetails.name, 
@@ -249,19 +290,30 @@ export default function SupportWidget() {
               <div className="w-2.5 h-2.5 rounded-full bg-[#8B2D75] animate-pulse"></div>
               <h3 className="font-bold text-[16px] tracking-wide text-white">LoraBiz Support</h3>
             </div>
-            <button onClick={() => toggleWidget(false)} className="text-gray-300 hover:text-white p-1">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+            
+            <div className="flex items-center space-x-2">
+              {/* THE END CHAT BUTTON */}
+              {view === 'CHAT' && (
+                <button 
+                  onClick={handleEndChat} 
+                  className="text-[12px] font-bold bg-[#333333] hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm"
+                >
+                  End Chat
+                </button>
+              )}
+              <button onClick={() => toggleWidget(false)} className="text-gray-300 hover:text-white p-1 ml-1">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
           </div>
 
-          {/* BEAUTIFUL BRANDED LOADING STATE */}
           {isInitializing ? (
              <div className="flex-1 flex flex-col items-center justify-center bg-[#F8FAFC] space-y-5">
                <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center p-2 shadow-sm border border-gray-100 animate-pulse">
                   <img src="/support.png" alt="Loading" className="w-full h-full object-contain opacity-70" />
                </div>
                <div className="text-center animate-pulse">
-                  <h2 className="text-[17px] font-bold text-gray-800">Connecting ...</h2>
+                  <h2 className="text-[17px] font-bold text-gray-800">Connecting securely...</h2>
                   <p className="text-[14px] text-gray-500 mt-1">Preparing your support experience</p>
                </div>
                <div className="flex space-x-2 mt-2">
@@ -304,7 +356,7 @@ export default function SupportWidget() {
                         <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                       </a>
                       <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg>
                         <span className="text-[14px] font-bold text-gray-800">Email</span>
                       </a>
                     </div>
@@ -461,7 +513,6 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* FIXED WIDGET TRIGGER PICTURE */}
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
