@@ -30,7 +30,6 @@ export default function SupportWidget() {
   const [anonUserId, setAnonUserId] = useState<string | null>(null);
   const [historyTickets, setHistoryTickets] = useState<Ticket[]>([]);
   
-  // Expanded Onboarding State
   const [userDetails, setUserDetails] = useState({ name: '', email: '', topic: '', description: '' });
   
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
@@ -134,7 +133,6 @@ export default function SupportWidget() {
     setView('CHAT');
     setIsTyping(true);
 
-    // Format the onboarding data as a system message and trigger the AI backend
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
       
@@ -228,8 +226,17 @@ export default function SupportWidget() {
           {view === 'HUB' && (
              <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
               <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                <div className="w-14 h-14 rounded-full bg-yellow-400 flex items-center justify-center shrink-0 border-2 border-[#8B2D75]">
-                   <svg className="w-8 h-8 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M16 11V9a4 4 0 0 0-8 0v2" /><circle cx="12" cy="11" r="3" fill="currentColor" /><path d="M8 11h-.5a1.5 1.5 0 0 0-1.5 1.5v2A1.5 1.5 0 0 0 7.5 16H8" /><path d="M16 11h.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H16" /><path d="M17.5 14.5c0 1.5-2 3-5.5 3" /></svg>
+                {/* Zoho Style Avatar inside the Hub */}
+                <div className="w-14 h-14 rounded-full bg-[#8B2D75] flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
+                  <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 11V9a4 4 0 0 0-8 0v2" />
+                    <rect x="6" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
+                    <rect x="15" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
+                    <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="currentColor" stroke="none" />
+                    <circle cx="12" cy="8" r="3.5" fill="currentColor" stroke="none" />
+                    <path d="M18 13v1.5a2.5 2.5 0 0 1-2.5 2.5H14" />
+                    <circle cx="13.5" cy="17" r="1.5" fill="currentColor" stroke="none" />
+                  </svg>
                 </div>
                 <div>
                   <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi there!</h2>
@@ -244,9 +251,10 @@ export default function SupportWidget() {
                 </button>
               </div>
 
-              {historyTickets.length > 0 && (
-                <div>
-                  <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Recent Conversations</h3>
+              {/* History Section */}
+              <div>
+                <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Recent Conversations</h3>
+                {historyTickets.length > 0 ? (
                   <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
                     {historyTickets.map((t) => (
                       <button key={t.$id} onClick={() => handleStartChat(t.$id)} className="w-full text-left p-4 border-b last:border-0 hover:bg-gray-50 flex items-center justify-between">
@@ -258,12 +266,32 @@ export default function SupportWidget() {
                       </button>
                     ))}
                   </div>
+                ) : (
+                  <div className="bg-white border border-gray-100 rounded-xl p-6 text-center shadow-sm">
+                    <p className="text-[13px] text-gray-500 font-medium">You don't have any past conversations.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* FAQ Section */}
+              <div className="mt-4 border-t border-gray-200 pt-6 pb-4">
+                <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-4">Frequently Asked Questions</h3>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-[14px] font-bold text-gray-800">When can I chat with a support agent?</h4>
+                    <p className="text-[13px] text-gray-600 mt-1 leading-relaxed">Our human support team is available during standard business hours to assist you directly.</p>
+                  </div>
+                  <div>
+                    <h4 className="text-[14px] font-bold text-gray-800">Will I get support outside working hours?</h4>
+                    <p className="text-[13px] text-gray-600 mt-1 leading-relaxed">Yes, absolutely! Lora, our advanced AI assistant, is online 24/7 to resolve your inquiries instantly, ensuring you receive complete support anytime.</p>
+                  </div>
                 </div>
-              )}
+              </div>
+
             </div>
           )}
 
-          {/* EXPANDED ONBOARDING VIEW */}
+          {/* ONBOARDING VIEW */}
           {view === 'ONBOARDING' && (
             <div className="flex-1 overflow-y-auto bg-white p-6 flex flex-col justify-start">
               <div className="text-center mb-6 mt-4">
@@ -367,18 +395,26 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* Human Launcher Icon */}
+      {/* Zoho-Style Main Launcher Button */}
       <div className="absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto">
         <button
           onClick={() => toggleWidget(!isOpen)}
-          className={`w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 ${isOpen ? 'bg-black border-transparent' : 'bg-white border-[#8B2D75]'}`}
+          className={`w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isOpen ? 'bg-black text-white' : 'bg-[#8B2D75] text-white'}`}
         >
           {isOpen ? (
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            <img src="https://images.unsplash.com/photo-1596524430615-b46475ddff6e?auto=format&fit=crop&w=150&q=80" alt="Chat with us" className="w-full h-full object-cover rounded-full p-0.5" />
+            <svg className="w-[42px] h-[42px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 11V9a4 4 0 0 0-8 0v2" />
+              <rect x="6" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
+              <rect x="15" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
+              <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="8" r="3.5" fill="currentColor" stroke="none" />
+              <path d="M18 13v1.5a2.5 2.5 0 0 1-2.5 2.5H14" />
+              <circle cx="13.5" cy="17" r="1.5" fill="currentColor" stroke="none" />
+            </svg>
           )}
         </button>
       </div>
