@@ -1,21 +1,20 @@
-// app/api/support/chat/route.ts
-
 import { NextResponse } from 'next/server';
 import { Client, Databases, Query, ID } from 'node-appwrite';
 import { processTicketWithAI } from '@/lib/ai';
 import { summarizeChatForAgent } from '@/lib/ai-summarizer';
 import { checkBusinessHours } from '@/lib/business-hours';
 
+// FIX: Standardized to use APPWRITE_SECRET_KEY
 const client = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || '')
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '')
-  .setKey(process.env.APPWRITE_API_KEY || '');
+  .setKey(process.env.APPWRITE_SECRET_KEY || process.env.APPWRITE_API_KEY || '');
 
 const databases = new Databases(client);
 
-const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
-const TICKETS_COLLECTION_ID = process.env.APPWRITE_TICKETS_COLLECTION_ID || process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
-const MESSAGES_COLLECTION_ID = process.env.APPWRITE_MESSAGES_COLLECTION_ID || process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
+const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
+const TICKETS_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
+const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
 const MAX_MESSAGE_LENGTH = 2000;
 
@@ -85,7 +84,7 @@ export async function POST(req: Request) {
       Query.limit(50),
     ]);
 
-    const formattedHistory = historyDocs.documents.map((doc) => ({
+    const formattedHistory = historyDocs.documents.map((doc: any) => ({
       senderType: doc.senderType,
       content: doc.content,
     }));
@@ -94,10 +93,9 @@ export async function POST(req: Request) {
 
     if (aiResponse.includes('TRIGGER_HANDOVER')) {
       const hoursStatus = checkBusinessHours();
-      const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
+      const transcript = formattedHistory.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
       const summary = await summarizeChatForAgent(transcript);
 
-      // UPDATED QUEUE MESSAGE
       const handoverMessage = hoursStatus.isOnline
         ? 'I have added you to our support queue. A human agent will connect and message you very soon.'
         : hoursStatus.message;
