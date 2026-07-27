@@ -105,7 +105,7 @@ export default function SupportWidget() {
              return [...data.messages, ...inFlight];
           });
           
-          setIsChatLoading(false); // Clear the loading skeleton once data arrives
+          setIsChatLoading(false); 
           
           if (data.ticketStatus) {
             if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
@@ -275,7 +275,6 @@ export default function SupportWidget() {
     }
   };
 
-  // Restrict history to exactly the last 3 closed tickets
   const closedTickets = historyTickets.filter(t => t.status === 'CLOSED').slice(0, 3);
   const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
 
@@ -382,7 +381,6 @@ export default function SupportWidget() {
                     
                     <div className="flex gap-3">
                       <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto cursor-pointer relative z-10">
-                        {/* Official WhatsApp Logo */}
                         <svg className="w-5 h-5 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M12.031 0c-6.627 0-12.002 5.373-12.002 11.996 0 2.115.549 4.184 1.593 6.002l-1.622 5.952 6.096-1.597c1.764.957 3.754 1.464 5.935 1.464 6.627 0 12.001-5.372 12.001-11.996 0-6.623-5.374-11.996-12.001-11.996zm6.386 17.202c-.267.755-1.545 1.458-2.128 1.528-.544.066-1.25.138-3.593-.83-2.827-1.171-4.636-4.048-4.773-4.225-.138-.178-1.139-1.517-1.139-2.894 0-1.378.716-2.053.966-2.319.251-.267.545-.334.726-.334.18 0 .361 0 .513.009.157.009.378-.059.589.445.213.504.726 1.766.793 1.899.066.134.11.293.02.471-.09.178-.138.289-.276.446-.138.156-.29.356-.414.489-.138.156-.289.324-.124.624.164.298.726 1.218 1.554 2.046 1.066 1.064 1.975 1.385 2.274 1.519.298.134.471.111.647-.067.178-.178.761-.885.966-1.189.205-.304.41-.253.682-.156.273.098 1.722.815 2.019.964.298.148.497.223.57.347.074.124.074.726-.193 1.48z"/>
                         </svg>
@@ -390,10 +388,10 @@ export default function SupportWidget() {
                       </a>
                       <a 
                         href="mailto:support@lorabiz.com" 
-                        onClick={(e) => { e.preventDefault(); window.location.href = 'mailto:support@lorabiz.com'; }}
+                        target="_top"
                         className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto cursor-pointer relative z-10"
                       >
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg>
                         <span className="text-[14px] font-bold text-gray-800">Email</span>
                       </a>
                     </div>
@@ -485,7 +483,6 @@ export default function SupportWidget() {
               {view === 'CHAT' && (
                  <div className="flex-1 flex flex-col min-h-0 bg-[#F8FAFC]">
                    
-                   {/* BEAUTIFUL SKELETON LOADER FOR CHAT TRANSITIONS */}
                    {isChatLoading ? (
                      <div className="flex-1 p-5 flex flex-col space-y-4">
                        <div className="flex justify-start animate-pulse">
