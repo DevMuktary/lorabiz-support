@@ -142,8 +142,8 @@ export default function SupportWidget() {
           selectedFile, 
           [Permission.read(Role.user(anonUserId)), Permission.read(Role.team('agents'))]
         );
-        // Use getFileView for a direct URL
-        uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id).href;
+        // FIX: The Appwrite Web SDK returns a string here, not an object with an .href property.
+        uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
         console.error("Upload failed", err);
         alert("File upload failed.");
