@@ -24,20 +24,16 @@ const securePermissions = [
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log(`\n[LORA: API] New Request Received | Action: ${body.action || 'NEW_MESSAGE'}`);
-    console.log(`[LORA: API] Payload:`, { ...body, message: body.message ? '***' : undefined }); 
-
     const { ticketId, message, senderName, customerEmail, attachmentUrl, action, messageId, userId } = body;
 
     if (action === 'CLOSE_TICKET') {
-      console.log(`[LORA: API] Attempting to close ticket: ${ticketId}`);
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
       try {
         await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, { status: 'CLOSED' });
         await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
           ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
           sourceChannel: 'IN_APP', content: 'Conversation ended by the user.',
         }, securePermissions);
-        console.log(`[LORA: API] Ticket ${ticketId} successfully closed.`);
         return NextResponse.json({ status: 'SUCCESS' });
       } catch (e: any) {
         console.error(`[LORA: API ERROR] Failed to close ticket:`, e.message);
@@ -46,17 +42,12 @@ export async function POST(req: Request) {
     }
 
     if (action === 'INIT_SESSION') {
-      if (!userId) {
-        console.warn(`[LORA: API] INIT_SESSION failed: Missing userId`);
-        return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
-      }
+      if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
       try {
-        console.log(`[LORA: API] Querying tickets for userId: ${userId}`);
         const userTickets = await databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
           Query.equal('userId', userId),
           Query.limit(50)
         ]);
-        console.log(`[LORA: API] Found ${userTickets.documents.length} total tickets for user.`);
 
         let allTickets: any[] = [];
         if (userTickets.documents.length > 0) {
@@ -67,18 +58,15 @@ export async function POST(req: Request) {
           const activeTicket = allTickets.find(t => t.status !== 'CLOSED');
 
           if (activeTicket) {
-            console.log(`[LORA: API] Found active ticket: ${activeTicket.$id}. Fetching messages...`);
             const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
               Query.equal('ticketId', activeTicket.$id), Query.orderAsc('$createdAt'), Query.limit(100),
             ]);
-            console.log(`[LORA: API] Returned ${historyDocs.documents.length} messages.`);
             return NextResponse.json({ status: 'SUCCESS', ticketId: activeTicket.$id, messages: historyDocs.documents, ticketStatus: activeTicket.status, allTickets });
           }
         }
-        console.log(`[LORA: API] No active tickets found for user.`);
         return NextResponse.json({ status: 'NO_ACTIVE_TICKET', allTickets });
       } catch (e: any) {
-        console.error(`[LORA: API ERROR] Appwrite INIT_SESSION failed:`, e);
+        console.error(`[LORA: API ERROR] INIT_SESSION failed:`, e);
         return NextResponse.json({ error: e.message }, { status: 500 });
       }
     }
@@ -92,7 +80,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ status: 'SUCCESS', messages: historyDocs.documents, ticketStatus: ticket.status });
       } catch (e: any) {
         if (e.code === 404) return NextResponse.json({ status: 'NOT_FOUND', messages: [] });
-        console.error(`[LORA: API ERROR] FETCH_HISTORY failed:`, e);
         throw e;
       }
     }
@@ -107,7 +94,6 @@ export async function POST(req: Request) {
       ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
     } catch (e: any) {
       if (e.code === 404) {
-        console.log(`[LORA: API] Ticket ${ticketId} not found, creating new ticket.`);
         const generatedTitle = sanitizedMessage.includes('[System: Customer Onboarded]') 
           ? 'New Support Request' : (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage);
 
@@ -115,15 +101,11 @@ export async function POST(req: Request) {
             status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || '', userId: userId || null 
         }, securePermissions);
       } else { 
-        console.error(`[LORA: API ERROR] Failed to fetch or create ticket:`, e);
         throw e; 
       }
     }
 
-    if (ticket.status === 'CLOSED') {
-      console.warn(`[LORA: API] Rejected message. Ticket ${ticketId} is closed.`);
-      return NextResponse.json({ error: 'Ticket closed.' }, { status: 400 });
-    }
+    if (ticket.status === 'CLOSED') return NextResponse.json({ error: 'Ticket closed.' }, { status: 400 });
 
     const isSystemOnboard = sanitizedMessage.includes('[System: Customer Onboarded]');
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, messageId || ID.unique(), {
