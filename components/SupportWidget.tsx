@@ -35,6 +35,9 @@ export default function SupportWidget() {
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  
+  // FIXED: Restored the missing fileInputRef declaration
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // THE SAFARI FIX: Strict PostMessage Handshake with Parent Window
@@ -84,7 +87,7 @@ export default function SupportWidget() {
              return [...data.messages, ...optimisticMessages];
           });
           
-          // Also track ticket status for the Hub view
+          // Track ticket status for the Hub view
           if (data.ticketStatus) {
             setHistoryTickets([{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
           }
@@ -145,7 +148,6 @@ export default function SupportWidget() {
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
 
-      // Only ONE fetch call needed. Backend saves it silently. AI responds immediately.
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticketId: newTicketId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email }),
@@ -245,7 +247,7 @@ export default function SupportWidget() {
                     <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                   </a>
                   <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                     <span className="text-[14px] font-bold text-gray-800">Email</span>
                   </a>
                 </div>
@@ -316,7 +318,6 @@ export default function SupportWidget() {
                     const isSystem = msg.senderType === 'SYSTEM';
 
                     if (isSystem) {
-                      // STRIK FILTER: Completely hides the ugly onboarding text
                       if (msg.content.includes('[System: Customer Onboarded]')) return null;
                       
                       return (
@@ -386,7 +387,6 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* Floating Launcher disappears seamlessly when widget opens */}
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
