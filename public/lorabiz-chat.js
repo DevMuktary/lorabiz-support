@@ -1,40 +1,65 @@
 (function () {
-  if (document.getElementById('lorabiz-support-widget-container')) return;
+  // Prevent duplicate execution
+  if (window.LORA_INIT_WIDGET) return;
 
-  const SUPPORT_URL = 'https://support.lorabiz.com'; 
+  window.LORA_INIT_WIDGET = function(authData) {
+    if (document.getElementById('lorabiz-support-widget-container')) return;
 
-  const container = document.createElement('div');
-  container.id = 'lorabiz-support-widget-container';
-  
-  container.style.setProperty('position', 'fixed', 'important');
-  container.style.setProperty('bottom', '24px', 'important');
-  container.style.setProperty('right', '24px', 'important');
-  container.style.setProperty('width', '85px', 'important'); 
-  container.style.setProperty('height', '85px', 'important');
-  container.style.setProperty('z-index', '2147483647', 'important'); 
-  container.style.setProperty('border', 'none', 'important');
-  container.style.setProperty('overflow', 'hidden', 'important');
-  container.style.setProperty('transition', 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 'important');
-  container.style.setProperty('pointer-events', 'none', 'important');
-  container.style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
-  container.style.setProperty('transform', 'translateZ(0)', 'important');
+    const SUPPORT_URL = 'https://support.lorabiz.com'; 
+    let widgetUrl = `${SUPPORT_URL}/widget`;
 
-  const iframe = document.createElement('iframe');
-  iframe.src = `${SUPPORT_URL}/widget`;
-  iframe.id = 'lorabiz-support-iframe';
-  iframe.setAttribute('allowtransparency', 'true');
-  
-  iframe.style.setProperty('width', '100%', 'important');
-  iframe.style.setProperty('height', '100%', 'important');
-  iframe.style.setProperty('border', 'none', 'important');
-  iframe.style.setProperty('background-color', 'transparent', 'important');
-  iframe.style.setProperty('pointer-events', 'auto', 'important'); 
-  iframe.style.setProperty('color-scheme', 'normal', 'important');
+    // INJECT AUTH DATA DIRECTLY INTO URL FOR SAFARI COMPATIBILITY
+    if (authData && authData.userId) {
+      const params = new URLSearchParams({
+        userId: authData.userId,
+        name: authData.name || '',
+        email: authData.email || ''
+      });
+      widgetUrl += `?${params.toString()}`;
+    }
 
-  container.appendChild(iframe);
-  document.body.appendChild(container);
+    const container = document.createElement('div');
+    container.id = 'lorabiz-support-widget-container';
+    
+    container.style.setProperty('position', 'fixed', 'important');
+    container.style.setProperty('bottom', '24px', 'important');
+    container.style.setProperty('right', '24px', 'important');
+    container.style.setProperty('width', '85px', 'important'); 
+    container.style.setProperty('height', '85px', 'important');
+    container.style.setProperty('z-index', '2147483647', 'important'); 
+    container.style.setProperty('border', 'none', 'important');
+    container.style.setProperty('overflow', 'hidden', 'important');
+    container.style.setProperty('transition', 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 'important');
+    container.style.setProperty('pointer-events', 'none', 'important');
+    container.style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
+    container.style.setProperty('transform', 'translateZ(0)', 'important');
 
+    const iframe = document.createElement('iframe');
+    iframe.src = widgetUrl; 
+    iframe.id = 'lorabiz-support-iframe';
+    iframe.setAttribute('allowtransparency', 'true');
+    
+    iframe.style.setProperty('width', '100%', 'important');
+    iframe.style.setProperty('height', '100%', 'important');
+    iframe.style.setProperty('border', 'none', 'important');
+    iframe.style.setProperty('background-color', 'transparent', 'important');
+    iframe.style.setProperty('pointer-events', 'auto', 'important'); 
+    iframe.style.setProperty('color-scheme', 'normal', 'important');
+
+    container.appendChild(iframe);
+    document.body.appendChild(container);
+  };
+
+  // If NextAuth already finished loading before this script ran, init instantly.
+  if (window.lorabizUserAuthData !== undefined) {
+    window.LORA_INIT_WIDGET(window.lorabizUserAuthData);
+  }
+
+  // Handle resizing
   window.addEventListener('message', function (event) {
+    const container = document.getElementById('lorabiz-support-widget-container');
+    if (!container) return;
+
     if (event.data === 'LORA_WIDGET_CLOSED') {
       container.style.setProperty('width', '85px', 'important');
       container.style.setProperty('height', '85px', 'important');
@@ -58,17 +83,6 @@
         container.style.setProperty('bottom', '24px', 'important');
         container.style.setProperty('right', '24px', 'important');
       }
-    }
-
-    // NEW API ARCHITECTURE: Listen for iframe to be ready, then send auth data
-    if (event.data === 'LORA_WIDGET_READY') {
-       // We will pass the user data from Lumebiz down to this script in the next phase
-       const loraAuthData = window.lorabizUserAuthData || null;
-       
-       iframe.contentWindow.postMessage({ 
-         type: 'LORA_INIT_AUTH', 
-         payload: loraAuthData
-       }, '*');
     }
   });
 })();
