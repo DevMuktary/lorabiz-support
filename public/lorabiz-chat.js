@@ -31,17 +31,6 @@
   iframe.style.setProperty('pointer-events', 'auto', 'important'); 
   iframe.style.setProperty('color-scheme', 'normal', 'important');
 
-  // FIX: Push state immediately when iframe loads
-  iframe.onload = function() {
-    const savedState = localStorage.getItem('lorabiz_widget_state');
-    if (savedState) {
-      iframe.contentWindow.postMessage({ 
-        type: 'LORA_RESTORE_STATE', 
-        payload: JSON.parse(savedState) 
-      }, '*');
-    }
-  };
-
   container.appendChild(iframe);
   document.body.appendChild(container);
 
@@ -70,10 +59,16 @@
         container.style.setProperty('right', '24px', 'important');
       }
     }
-    
-    // Listen for state saves from the iframe
-    if (event.data && event.data.type === 'LORA_SAVE_STATE') {
-      localStorage.setItem('lorabiz_widget_state', JSON.stringify(event.data.payload));
+
+    // NEW API ARCHITECTURE: Listen for iframe to be ready, then send auth data
+    if (event.data === 'LORA_WIDGET_READY') {
+       // We will pass the user data from Lumebiz down to this script in the next phase
+       const loraAuthData = window.lorabizUserAuthData || null;
+       
+       iframe.contentWindow.postMessage({ 
+         type: 'LORA_INIT_AUTH', 
+         payload: loraAuthData
+       }, '*');
     }
   });
 })();
