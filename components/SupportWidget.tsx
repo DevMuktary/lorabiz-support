@@ -25,7 +25,6 @@ export default function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<'HUB' | 'ONBOARDING' | 'CHAT'>('HUB');
   
-  // Auth State
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [userDetails, setUserDetails] = useState({ name: '', email: '', topic: '', description: '' });
   
@@ -43,69 +42,43 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // THE SAFARI FIX: Aggressive Polling Handshake
+  // INSTANT LOAD: Read Auth Data directly from the URL (Fixes Safari ITP)
   useEffect(() => {
-    let pingInterval: NodeJS.Timeout;
+    const initFromUrl = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlUserId = params.get('userId');
+      
+      if (urlUserId) {
+        setAuthUserId(urlUserId);
+        setUserDetails(prev => ({ 
+          ...prev, 
+          name: params.get('name') || prev.name, 
+          email: params.get('email') || prev.email 
+        }));
 
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data?.type === 'LORA_INIT_AUTH') {
-        
-        // Stop pinging Safari because we finally received data
-        clearInterval(pingInterval);
-        
-        const payload = event.data.payload;
-        if (payload) {
-          if (payload.userId) setAuthUserId(payload.userId);
+        try {
+          const res = await fetch('/api/support/chat', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'INIT_SESSION', userId: urlUserId })
+          });
+          const data = await res.json();
           
-          setUserDetails(prev => ({ 
-            ...prev, 
-            name: payload.name || prev.name, 
-            email: payload.email || prev.email 
-          }));
-
-          if (payload.userId) {
-            try {
-              const res = await fetch('/api/support/chat', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'INIT_SESSION', userId: payload.userId })
-              });
-              const data = await res.json();
-              
-              if (data.status === 'SUCCESS' && data.ticketId) {
-                setActiveTicketId(data.ticketId);
-                setMessages(data.messages || []);
-                setHistoryTickets([{ $id: data.ticketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
-              }
-            } catch (err) {}
+          if (data.status === 'SUCCESS' || data.status === 'NO_ACTIVE_TICKET') {
+            if (data.allTickets) setHistoryTickets(data.allTickets);
+            if (data.ticketId) {
+              setActiveTicketId(data.ticketId);
+              setMessages(data.messages || []);
+            }
           }
-        }
-        setIsInitializing(false);
+        } catch (err) {}
       }
-    };
-    
-    window.addEventListener('message', handleMessage);
-    
-    // Aggressively ping parent to bypass Safari iframe drops
-    if (typeof window !== 'undefined' && window.parent) {
-      pingInterval = setInterval(() => {
-        window.parent.postMessage('LORA_WIDGET_READY', '*');
-      }, 500);
-    }
-    
-    // Safety fallback: give up after 3 seconds
-    const timeout = setTimeout(() => {
-      clearInterval(pingInterval);
       setIsInitializing(false);
-    }, 3000);
-
-    return () => {
-      window.removeEventListener('message', handleMessage);
-      clearInterval(pingInterval);
-      clearTimeout(timeout);
     };
+
+    initFromUrl();
   }, []);
 
-  // Secure API Polling & Auto-Kick Logic
+  // Secure API Polling
   useEffect(() => {
     if (!activeTicketId) return;
 
@@ -124,25 +97,36 @@ export default function SupportWidget() {
           });
           
           if (data.ticketStatus) {
-            setHistoryTickets([{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
+            setHistoryTickets(prev => {
+              const exists = prev.find(t => t.$id === activeTicketId);
+              if (exists) return prev.map(t => t.$id === activeTicketId ? { ...t, status: data.ticketStatus } : t);
+              return [{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }, ...prev];
+            });
             
-            // LIFECYCLE FIX: If Agent closed it remotely, kick the user out of the chat
             if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
-               alert("This conversation has been closed by the support team.");
-               setView('HUB');
-               setActiveTicketId(null);
+               const activeTicketIndex = historyTickets.findIndex(t => t.$id === activeTicketId);
+               // Only kick them out automatically if it was just closed remotely, not if they are intentionally viewing an old chat
+               if (activeTicketIndex > -1 && historyTickets[activeTicketIndex].status !== 'CLOSED') {
+                 alert("This conversation has been closed by the support team.");
+                 setView('HUB');
+                 setActiveTicketId(null);
+               }
             }
           }
         }
       } catch (err) {}
     };
 
-    if (view === 'CHAT' || view === 'HUB') {
+    if (view === 'CHAT') {
       fetchChatHistory();
-      const interval = setInterval(fetchChatHistory, 3000); 
-      return () => clearInterval(interval);
+      const currentTicket = historyTickets.find(t => t.$id === activeTicketId);
+      // Only poll heavily if the ticket is open
+      if (currentTicket?.status !== 'CLOSED') {
+        const interval = setInterval(fetchChatHistory, 3000); 
+        return () => clearInterval(interval);
+      }
     }
-  }, [activeTicketId, view]);
+  }, [activeTicketId, view, historyTickets]);
 
   const scrollToBottom = () => {
     setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, 150);
@@ -170,14 +154,16 @@ export default function SupportWidget() {
     }
   };
 
-  // LIFECYCLE FIX: User manually ending chat
+  const handleOpenHistory = (ticketId: string) => {
+    setActiveTicketId(ticketId);
+    setView('CHAT');
+  };
+
   const handleEndChat = async () => {
     if (!activeTicketId) return;
-    
     const confirmEnd = window.confirm("Are you sure you want to end this conversation? It will be permanently closed.");
     if (!confirmEnd) return;
 
-    // Optimistically clean up UI instantly
     setView('HUB');
     setHistoryTickets(prev => prev.map(t => t.$id === activeTicketId ? { ...t, status: 'CLOSED' } : t));
     const closingTicketId = activeTicketId;
@@ -188,9 +174,7 @@ export default function SupportWidget() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CLOSE_TICKET', ticketId: closingTicketId })
       });
-    } catch (err) {
-      console.error("Failed to close ticket", err);
-    }
+    } catch (err) {}
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,13 +200,11 @@ export default function SupportWidget() {
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          ticketId: newTicketId, 
-          userId: authUserId, 
-          message: systemContextMessage, 
-          senderName: userDetails.name, 
-          customerEmail: userDetails.email 
+          ticketId: newTicketId, userId: authUserId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email 
         }),
       });
+      // Add immediately to history view
+      setHistoryTickets(prev => [{ $id: newTicketId, status: 'OPEN', $createdAt: new Date().toISOString(), title: userDetails.topic }, ...prev]);
     } catch (error) {} finally {
       setIsTyping(false);
     }
@@ -260,12 +242,7 @@ export default function SupportWidget() {
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          ticketId: activeTicketId, 
-          messageId, 
-          userId: authUserId,
-          message: currentText, 
-          senderName: userDetails.name, 
-          attachmentUrl: uploadedFileUrl 
+          ticketId: activeTicketId, messageId, userId: authUserId, message: currentText, senderName: userDetails.name, attachmentUrl: uploadedFileUrl 
         }),
       });
     } catch (error) {
@@ -275,6 +252,9 @@ export default function SupportWidget() {
     }
   };
 
+  const closedTickets = historyTickets.filter(t => t.status === 'CLOSED');
+  const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
+
   return (
     <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none">
       {isOpen && (
@@ -283,17 +263,16 @@ export default function SupportWidget() {
           <div className="bg-[#000000] px-5 py-4 flex justify-between items-center text-white shrink-0">
             <div className="flex items-center space-x-3">
               {(view === 'CHAT' || view === 'ONBOARDING') && (
-                <button onClick={() => setView('HUB')} className="hover:bg-white/10 p-1 rounded-md transition-colors">
+                <button onClick={() => { setView('HUB'); setActiveTicketId(null); }} className="hover:bg-white/10 p-1 rounded-md transition-colors">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
               )}
-              <div className="w-2.5 h-2.5 rounded-full bg-[#8B2D75] animate-pulse"></div>
+              <div className={`w-2.5 h-2.5 rounded-full bg-[#8B2D75] ${!isViewingClosedTicket ? 'animate-pulse' : ''}`}></div>
               <h3 className="font-bold text-[16px] tracking-wide text-white">LoraBiz Support</h3>
             </div>
             
             <div className="flex items-center space-x-2">
-              {/* THE END CHAT BUTTON */}
-              {view === 'CHAT' && (
+              {view === 'CHAT' && !isViewingClosedTicket && (
                 <button 
                   onClick={handleEndChat} 
                   className="text-[12px] font-bold bg-[#333333] hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm"
@@ -314,17 +293,13 @@ export default function SupportWidget() {
                </div>
                <div className="text-center animate-pulse">
                   <h2 className="text-[17px] font-bold text-gray-800">Connecting securely...</h2>
-                  <p className="text-[14px] text-gray-500 mt-1">Preparing your support experience</p>
                </div>
                <div className="flex space-x-2 mt-2">
-                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce"></div>
-                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce"></div><div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div><div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                </div>
              </div>
           ) : (
             <>
-              {/* HUB VIEW */}
               {view === 'HUB' && (
                 <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
                   <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -362,7 +337,26 @@ export default function SupportWidget() {
                     </div>
                   </div>
 
-                  <div className="mt-4 border-t border-gray-200 pt-6 pb-4">
+                  {/* HISTORY FIX: Render Previous Conversations */}
+                  {closedTickets.length > 0 && (
+                    <div className="mt-2 border-t border-gray-200 pt-5">
+                      <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Previous Conversations</h3>
+                      <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                        {closedTickets.map(ticket => (
+                          <button 
+                            key={ticket.$id}
+                            onClick={() => handleOpenHistory(ticket.$id)}
+                            className="w-full text-left bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors flex flex-col gap-1"
+                          >
+                            <span className="font-bold text-[14px] text-gray-800 truncate">{ticket.title || 'Support Request'}</span>
+                            <span className="text-[12px] font-medium text-gray-500">Closed • {new Date(ticket.$createdAt).toLocaleDateString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-2 border-t border-gray-200 pt-5 pb-4">
                     <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-4">Frequently Asked Questions</h3>
                     <div className="space-y-4">
                       <div>
@@ -371,14 +365,13 @@ export default function SupportWidget() {
                       </div>
                       <div>
                         <h4 className="text-[14px] font-bold text-gray-800">Will I get support outside working hours?</h4>
-                        <p className="text-[13px] text-gray-600 mt-1 leading-relaxed">Yes, absolutely! Lora, our advanced AI assistant, is online 24/7 to resolve your inquiries instantly, ensuring you receive complete support anytime.</p>
+                        <p className="text-[13px] text-gray-600 mt-1 leading-relaxed">Yes, absolutely! Lora, our advanced AI assistant, is online 24/7 to resolve your inquiries instantly.</p>
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* ONBOARDING VIEW */}
               {view === 'ONBOARDING' && (
                 <div className="flex-1 overflow-y-auto bg-white p-6 flex flex-col justify-start">
                   <div className="text-center mb-6 mt-4">
@@ -389,11 +382,8 @@ export default function SupportWidget() {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
                       <input 
-                        required 
-                        type="text" 
-                        value={userDetails.name} 
-                        onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} 
-                        readOnly={!!authUserId} // Locks field if authenticated
+                        required type="text" value={userDetails.name} onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} 
+                        readOnly={!!authUserId} 
                         className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} 
                         placeholder="John Doe" 
                       />
@@ -401,11 +391,8 @@ export default function SupportWidget() {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Registered Email</label>
                       <input 
-                        required 
-                        type="email" 
-                        value={userDetails.email} 
-                        onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} 
-                        readOnly={!!authUserId} // Locks field if authenticated
+                        required type="email" value={userDetails.email} onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} 
+                        readOnly={!!authUserId} 
                         className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} 
                         placeholder="john@example.com" 
                       />
@@ -434,7 +421,6 @@ export default function SupportWidget() {
                 </div>
               )}
 
-              {/* CHAT VIEW */}
               {view === 'CHAT' && (
                  <div className="flex-1 flex flex-col min-h-0 bg-[#F8FAFC]">
                    <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 relative">
@@ -474,38 +460,44 @@ export default function SupportWidget() {
                       <div ref={messagesEndRef} />
                    </div>
 
-                   {/* Input Area */}
-                   <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe">
-                     {selectedFile && (
-                       <div className="mb-3 relative flex items-center bg-gray-100 rounded-lg p-3 pr-10 text-[13px] font-medium text-gray-700 w-full shadow-sm">
-                          <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                          <span className="truncate flex-1">{selectedFile.name}</span>
-                          <button onClick={() => setSelectedFile(null)} className="absolute right-3 bg-red-100 text-red-600 rounded-full p-1.5 hover:bg-red-200 transition-colors">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                   {/* HISTORY FIX: Block Input if viewing a closed ticket */}
+                   {isViewingClosedTicket ? (
+                     <div className="p-4 text-center bg-gray-100 border-t border-gray-200 shrink-0 pb-safe">
+                       <span className="text-[14px] text-gray-500 font-medium">This conversation is closed.</span>
+                     </div>
+                   ) : (
+                     <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe">
+                       {selectedFile && (
+                         <div className="mb-3 relative flex items-center bg-gray-100 rounded-lg p-3 pr-10 text-[13px] font-medium text-gray-700 w-full shadow-sm">
+                            <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <span className="truncate flex-1">{selectedFile.name}</span>
+                            <button onClick={() => setSelectedFile(null)} className="absolute right-3 bg-red-100 text-red-600 rounded-full p-1.5 hover:bg-red-200 transition-colors">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                         </div>
+                       )}
+                       <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
+                          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
+                          
+                          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75] transition-colors rounded-xl hover:bg-gray-50 shrink-0">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                           </button>
-                       </div>
-                     )}
-                     <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
-                        <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
-                        
-                        <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75] transition-colors rounded-xl hover:bg-gray-50 shrink-0">
-                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                        </button>
-                        
-                        <input 
-                           type="text" 
-                           value={inputText} 
-                           onChange={(e) => setInputText(e.target.value)} 
-                           onFocus={scrollToBottom} 
-                           placeholder="Message..." 
-                           className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000] min-w-0" 
-                        />
-                        
-                        <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0">
-                          {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
-                        </button>
-                     </form>
-                   </div>
+                          
+                          <input 
+                             type="text" 
+                             value={inputText} 
+                             onChange={(e) => setInputText(e.target.value)} 
+                             onFocus={scrollToBottom} 
+                             placeholder="Message..." 
+                             className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000] min-w-0" 
+                          />
+                          
+                          <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0">
+                            {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                          </button>
+                       </form>
+                     </div>
+                   )}
                  </div>
               )}
             </>
