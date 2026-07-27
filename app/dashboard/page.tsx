@@ -1,13 +1,12 @@
+// app/dashboard/page.tsx
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useUser, UserButton } from '@clerk/nextjs';
-import { client, databases } from '@/lib/appwrite-client';
-// CRITICAL FIX: Use the Web SDK ('appwrite') instead of the Server SDK ('node-appwrite') on the frontend
+import { client, databases, account } from '@/lib/appwrite-client'; // FIX: Imported account
 import { Query, ID } from 'appwrite'; 
 import { Send, Phone, Mail, MessageSquare, ChevronLeft, Bot, User, CheckCircle2, XCircle, Info } from 'lucide-react';
 
-// --- Types ---
 interface Ticket {
   $id: string;
   customerPhone?: string;
@@ -17,7 +16,7 @@ interface Ticket {
   lastMessage?: string;
   aiSummary?: string;
   assignedAgentId?: string;
-  customerTyping?: boolean; // Ephemeral state for UI
+  customerTyping?: boolean; 
 }
 
 interface Message {
@@ -60,7 +59,6 @@ export default function DashboardPage() {
       ]);
       setTickets(response.documents as unknown as Ticket[]);
       
-      // Update selected ticket state if it changed in the background
       if (selectedTicket) {
         const updated = response.documents.find(t => t.$id === selectedTicket.$id);
         if (updated) setSelectedTicket(updated as unknown as Ticket);
@@ -83,25 +81,48 @@ export default function DashboardPage() {
     }
   };
 
-  // Real-time Subscriptions
+  // FIX: Real-time Subscriptions with Secure Auth Bridge Initialization
   useEffect(() => {
-    fetchTickets();
-    const unsubscribeTickets = client.subscribe(
-      `databases.${dbId}.collections.${ticketsCol}.documents`,
-      (response: any) => {
-        fetchTickets(); // Refresh list on any ticket update
-        
-        // Listen for typing events if you implement a typing flag on the ticket document
-        if (response.payload.$id === selectedTicket?.$id) {
-          setIsCustomerTyping(response.payload.customerTyping || false);
+    if (!user) return;
+
+    let unsubscribeTickets = () => {};
+
+    const initSecureSession = async () => {
+      try {
+        await account.get(); // Check if already logged into Appwrite securely
+      } catch {
+        // Fetch custom token generated via Clerk auth
+        const res = await fetch('/api/auth/appwrite-token', { method: 'POST' });
+        if (res.ok) {
+          const { token } = await res.json();
+          await account.createSession(user.id, token);
+        } else {
+          console.error('Failed to bridge Clerk to Appwrite session.');
+          return; // Stop execution if auth fails
         }
       }
-    );
+      
+      // Fetch only after establishing secure connection
+      fetchTickets();
+
+      unsubscribeTickets = client.subscribe(
+        `databases.${dbId}.collections.${ticketsCol}.documents`,
+        (response: any) => {
+          fetchTickets(); 
+          if (response.payload.$id === selectedTicket?.$id) {
+            setIsCustomerTyping(response.payload.customerTyping || false);
+          }
+        }
+      );
+    };
+
+    initSecureSession();
+
     return () => unsubscribeTickets();
-  }, [dbId, ticketsCol, selectedTicket]);
+  }, [user, dbId, ticketsCol, selectedTicket]);
 
   useEffect(() => {
-    if (!selectedTicket) return;
+    if (!selectedTicket || !user) return; // Prevent fetching if not authenticated
     fetchMessages(selectedTicket.$id);
     const unsubscribeMessages = client.subscribe(
       `databases.${dbId}.collections.${messagesCol}.documents`,
@@ -115,7 +136,6 @@ export default function DashboardPage() {
             if (exists) return prev;
             return [...prev, response.payload as unknown as Message];
           });
-          // Turn off typing indicator when a new message arrives
           if (response.payload.senderType === 'CUSTOMER') {
              setIsCustomerTyping(false);
           }
@@ -123,9 +143,7 @@ export default function DashboardPage() {
       }
     );
     return () => unsubscribeMessages();
-  }, [selectedTicket, dbId, messagesCol]);
-
-  // --- Agent Workflows ---
+  }, [selectedTicket, dbId, messagesCol, user]);
 
   const handlePickTicket = async () => {
     if (!selectedTicket || !user) return;
@@ -135,13 +153,11 @@ export default function DashboardPage() {
     const introMessage = `Hi, my name is ${agentName} and I will be supporting you today. Please give me a minute to review the chat.`;
 
     try {
-      // 1. Update ticket status
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, {
         status: 'IN_PROGRESS',
         assignedAgentId: user.id,
       });
 
-      // 2. Send introductory system message to customer
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
         ticketId: selectedTicket.$id,
         senderType: 'SYSTEM',
@@ -150,7 +166,7 @@ export default function DashboardPage() {
         content: introMessage,
       });
 
-      fetchTickets(); // Refresh state
+      fetchTickets();
     } catch (error) {
       console.error("Failed to pick ticket:", error);
     } finally {
@@ -163,13 +179,11 @@ export default function DashboardPage() {
     setLoading(true);
 
     try {
-      // 1. Return ticket to AI Control
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, {
         status: 'OPEN',
         assignedAgentId: null,
       });
 
-      // 2. Notify Customer
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
         ticketId: selectedTicket.$id,
         senderType: 'SYSTEM',
@@ -178,7 +192,7 @@ export default function DashboardPage() {
         content: 'The human agent has ended this session. Lora (AI) is back online and ready to assist you.',
       });
 
-      fetchTickets(); // Refresh state
+      fetchTickets(); 
     } catch (error) {
       console.error("Failed to end chat:", error);
     } finally {
@@ -394,7 +408,6 @@ export default function DashboardPage() {
                     placeholder="Type your reply to the customer..."
                     value={replyContent}
                     onChange={(e) => setReplyContent(e.target.value)}
-                    /* text-[16px] specifically prevents iOS Safari zooming */
                     className="flex-1 bg-[#F8FAFC] border border-gray-200 rounded-xl px-5 py-4 text-[16px] focus:outline-none focus:ring-2 focus:ring-[#8B2D75] focus:border-transparent transition-all placeholder:text-gray-400"
                   />
                   <button
