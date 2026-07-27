@@ -40,7 +40,6 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initialize Session
   useEffect(() => {
     const initAnonSession = async () => {
       try {
@@ -54,7 +53,6 @@ export default function SupportWidget() {
     initAnonSession();
   }, []);
 
-  // Fetch Hub History (Only loads tickets this user created due to DLS)
   useEffect(() => {
     if (!anonUserId || !isOpen || view !== 'HUB') return;
     
@@ -73,11 +71,9 @@ export default function SupportWidget() {
     loadHistory();
   }, [anonUserId, isOpen, view]);
 
-  // Handle Realtime Messages
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
 
-    // Load past messages for this ticket
     databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', activeTicketId), Query.orderAsc('$createdAt')
     ]).then(res => setMessages(res.documents as unknown as Message[]));
@@ -142,7 +138,6 @@ export default function SupportWidget() {
           selectedFile, 
           [Permission.read(Role.user(anonUserId)), Permission.read(Role.team('agents'))]
         );
-        // FIX: The Appwrite Web SDK returns a string here, not an object with an .href property.
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
         console.error("Upload failed", err);
@@ -158,7 +153,6 @@ export default function SupportWidget() {
     const currentText = inputText;
     setInputText(''); 
 
-    // Optimistic UI Update
     setMessages((prev) => [...prev, {
       $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: 'You',
       content: currentText, attachmentUrl: uploadedFileUrl
@@ -179,9 +173,10 @@ export default function SupportWidget() {
   };
 
   return (
-    <div className="fixed bottom-0 right-0 z-50 flex flex-col items-end p-0 sm:p-6 w-full h-[100dvh] sm:h-auto sm:w-auto pointer-events-none">
+    // FIX 1: Changed z-50 to z-[99999] so it forces itself to the very front layer
+    <div className="fixed bottom-0 right-0 z-[99999] flex flex-col items-end p-0 sm:p-6 w-full h-[100dvh] sm:h-auto sm:w-auto pointer-events-none">
       {isOpen && (
-        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto border border-gray-200 animate-in slide-in-from-bottom-5">
+        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border border-gray-200 animate-in slide-in-from-bottom-5">
           
           {/* Header */}
           <div className="bg-[#000000] px-5 py-4 flex justify-between items-center text-white shrink-0">
@@ -214,11 +209,11 @@ export default function SupportWidget() {
                 </button>
                 
                 <div className="flex gap-3">
-                  <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors">
+                  <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
                     <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
                     <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                   </a>
-                  <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors">
+                  <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
                     <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                     <span className="text-[14px] font-bold text-gray-800">Email</span>
                   </a>
@@ -341,25 +336,53 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* Human Headset Launcher Button */}
+      {/* FIX 2: Replaced the small black button with a large, transparent, background-free human avatar SVG */}
       <div className="sm:p-0 p-4 pointer-events-auto">
         <button
           onClick={() => toggleWidget(!isOpen)}
-          className="w-[68px] h-[68px] bg-[#000000] hover:bg-gray-900 text-yellow-400 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+          className="w-[85px] h-[85px] bg-transparent flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
         >
           {isOpen ? (
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            // Close State (Simple circle with X)
+            <div className="w-[60px] h-[60px] bg-black text-white rounded-full flex items-center justify-center shadow-2xl">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
           ) : (
-            // Human Support Agent SVG (with headset)
-            <svg className="w-10 h-10 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 11V9a4 4 0 0 0-8 0v2" />
-              <circle cx="12" cy="11" r="3" fill="#8B2D75" stroke="none" /> 
-              <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="#facc15" stroke="none" />
-              <path d="M8 11h-.5a1.5 1.5 0 0 0-1.5 1.5v2A1.5 1.5 0 0 0 7.5 16H8" stroke="white" />
-              <path d="M16 11h.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H16" stroke="white" />
-              <path d="M17.5 14.5c0 1.5-2 3-5.5 3" stroke="white" />
+            // Custom Human Agent Avatar (Yellow shirt, Headset, No Background)
+            <svg className="w-[85px] h-[85px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.25)]" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="48" fill="white" className="opacity-0"/> 
+              
+              {/* Yellow Shirt */}
+              <path d="M15 100 C 15 65, 85 65, 85 100" fill="#FACC15" />
+              
+              {/* Neck */}
+              <path d="M40 70 L 40 80 L 60 80 L 60 70 Z" fill="#FDBA74" />
+              
+              {/* Head */}
+              <circle cx="50" cy="45" r="25" fill="#FDBA74" />
+              
+              {/* Hair */}
+              <path d="M25 45 C 25 15, 75 15, 75 45 C 75 25, 60 18, 50 18 C 40 18, 25 25, 25 45 Z" fill="#1F2937" />
+              
+              {/* Face Details */}
+              <circle cx="41" cy="43" r="3" fill="#1F2937" />
+              <circle cx="59" cy="43" r="3" fill="#1F2937" />
+              <path d="M44 55 Q 50 61 56 55" stroke="#1F2937" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+              
+              {/* Headset Band */}
+              <path d="M20 45 C 20 10, 80 10, 80 45" stroke="#4B5563" strokeWidth="4" fill="none" />
+              
+              {/* Earpads */}
+              <rect x="74" y="35" width="10" height="20" rx="5" fill="#374151" />
+              <rect x="16" y="35" width="10" height="20" rx="5" fill="#374151" />
+              
+              {/* Mic Boom */}
+              <path d="M79 50 C 79 65, 65 68, 58 65" stroke="#374151" strokeWidth="3" strokeLinecap="round" fill="none"/>
+              
+              {/* Mic Sponge */}
+              <circle cx="56" cy="64" r="4" fill="#EF4444" />
             </svg>
           )}
         </button>
