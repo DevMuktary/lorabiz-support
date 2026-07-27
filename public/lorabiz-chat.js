@@ -1,14 +1,9 @@
 (function () {
-  // Prevent duplicate execution
-  if (window.LORA_INIT_WIDGET) return;
-
   window.LORA_INIT_WIDGET = function(authData) {
-    if (document.getElementById('lorabiz-support-widget-container')) return;
-
     const SUPPORT_URL = 'https://support.lorabiz.com'; 
     let widgetUrl = `${SUPPORT_URL}/widget`;
 
-    // INJECT AUTH DATA DIRECTLY INTO URL FOR SAFARI COMPATIBILITY
+    // INJECT AUTH DATA DIRECTLY INTO URL
     if (authData && authData.userId) {
       const params = new URLSearchParams({
         userId: authData.userId,
@@ -18,6 +13,17 @@
       widgetUrl += `?${params.toString()}`;
     }
 
+    let existingIframe = document.getElementById('lorabiz-support-iframe');
+    
+    // IF THE WIDGET ALREADY EXISTS, JUST UPDATE THE URL
+    if (existingIframe) {
+      if (existingIframe.src !== widgetUrl) {
+        existingIframe.src = widgetUrl;
+      }
+      return; // Stop here so we don't create duplicate containers
+    }
+
+    // OTHERWISE, CREATE THE WIDGET FOR THE FIRST TIME
     const container = document.createElement('div');
     container.id = 'lorabiz-support-widget-container';
     
@@ -50,12 +56,10 @@
     document.body.appendChild(container);
   };
 
-  // If NextAuth already finished loading before this script ran, init instantly.
   if (window.lorabizUserAuthData !== undefined) {
     window.LORA_INIT_WIDGET(window.lorabizUserAuthData);
   }
 
-  // Handle resizing
   window.addEventListener('message', function (event) {
     const container = document.getElementById('lorabiz-support-widget-container');
     if (!container) return;
