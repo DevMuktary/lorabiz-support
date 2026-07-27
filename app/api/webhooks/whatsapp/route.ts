@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Client, Databases, Storage, Query, ID } from 'node-appwrite';
 import { InputFile } from 'node-appwrite/file'; 
 import { processTicketWithAI } from '@/lib/ai';
+import { checkBusinessHours } from '@/lib/business-hours'; // Added import
 
 const adminClient = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
@@ -68,7 +69,6 @@ export async function POST(req: Request) {
             }
           }
         } else if (message.type === 'interactive') {
-          // Catch standard buttons
           if (message.interactive.type === 'button_reply') {
             const buttonId = message.interactive.button_reply.id;
             if (buttonId === 'agent_yes') {
@@ -78,7 +78,6 @@ export async function POST(req: Request) {
               content = '[Clicked: No Agent Needed]';
             }
           } 
-          // Catch WhatsApp Flow Submissions
           else if (message.interactive.type === 'nfm_reply') {
              isFlowSubmission = true;
              try {
@@ -96,7 +95,7 @@ export async function POST(req: Request) {
         // --- 2. TICKET MANAGEMENT ---
         const existingTickets = await databases.listDocuments(dbId, ticketsCol, [
           Query.equal('customerPhone', customerPhone),
-          Query.notEqual('status', 'CLOSED'), // Fixed to standard 'CLOSED' status
+          Query.notEqual('status', 'CLOSED'), 
           Query.orderDesc('$createdAt'),
           Query.limit(1)
         ]);
@@ -113,7 +112,6 @@ export async function POST(req: Request) {
             status: currentStatus 
           });
         } else {
-          // THIS IS A BRAND NEW USER - TICKET CREATED
           isFirstContact = true;
           const newTicket = await databases.createDocument(dbId, ticketsCol, ID.unique(), {
             customerPhone: customerPhone,
@@ -141,7 +139,6 @@ export async function POST(req: Request) {
         // --- 4. THE AI BRAIN & BUTTON HANDLER ---
         const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-        // Automatically trigger the Flow for brand new users, bypassing AI
         if (isFirstContact && !isFlowSubmission) {
             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
@@ -156,7 +153,7 @@ export async function POST(req: Request) {
                   action: {
                     name: "flow",
                     parameters: {
-                      flow_message_version: "3", flow_token: `onboarding_${ticketId}`, flow_id: process.env.WHATSAPP_FLOW_ID || "YOUR_FLOW_ID", 
+                      flow_message_version: "3", flow_token: `onboarding_${ticketId}`, flow_id: process.env.FLOW_ID, 
                       flow_cta: "Submit Details", flow_action: "navigate", flow_action_payload: { screen: "ONBOARDING_SCREEN" }
                     }
                   }
@@ -167,11 +164,17 @@ export async function POST(req: Request) {
         }
 
         if (isButtonReplyYes) {
+           // NEW LOGIC: Check business hours before promising an agent
+           const hoursStatus = checkBusinessHours();
+           const handoverMessage = hoursStatus.isOnline
+             ? "You have been placed in the queue. An available agent will be with you shortly."
+             : hoursStatus.message;
+
            await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 messaging_product: "whatsapp", to: customerPhone.replace("+", ""), type: "text",
-                text: { body: "You have been placed in the queue. An available agent will be with you shortly." }
+                text: { body: handoverMessage }
               })
             });
             return NextResponse.json({ success: true }); 
