@@ -71,7 +71,6 @@ export default function SupportWidget() {
               setActiveTicketId(data.ticketId);
               setMessages(data.messages || []);
               setHistoryTickets([{ $id: data.ticketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
-              // Do not automatically set view to CHAT here to allow user to see HUB first
             }
           } catch (err) {}
         }
@@ -86,7 +85,7 @@ export default function SupportWidget() {
     }
     
     // Fallback if parent doesn't reply quickly
-    const timeout = setTimeout(() => setIsInitializing(false), 2000);
+    const timeout = setTimeout(() => setIsInitializing(false), 2500);
     return () => {
       window.removeEventListener('message', handleMessage);
       clearTimeout(timeout);
@@ -255,9 +254,21 @@ export default function SupportWidget() {
             </button>
           </div>
 
+          {/* BEAUTIFUL BRANDED LOADING STATE */}
           {isInitializing ? (
-             <div className="flex-1 flex items-center justify-center bg-[#F8FAFC]">
-               <div className="w-8 h-8 border-4 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div>
+             <div className="flex-1 flex flex-col items-center justify-center bg-[#F8FAFC] space-y-5">
+               <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center p-2 shadow-sm border border-gray-100 animate-pulse">
+                  <img src="/support.png" alt="Loading" className="w-full h-full object-contain opacity-70" />
+               </div>
+               <div className="text-center animate-pulse">
+                  <h2 className="text-[17px] font-bold text-gray-800">Connecting ...</h2>
+                  <p className="text-[14px] text-gray-500 mt-1">Preparing your support experience</p>
+               </div>
+               <div className="flex space-x-2 mt-2">
+                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce"></div>
+                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+               </div>
              </div>
           ) : (
             <>
@@ -293,7 +304,7 @@ export default function SupportWidget() {
                         <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                       </a>
                       <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                         <span className="text-[14px] font-bold text-gray-800">Email</span>
                       </a>
                     </div>
@@ -325,11 +336,27 @@ export default function SupportWidget() {
                   <form onSubmit={handleOnboardingSubmit} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
-                      <input required type="text" value={userDetails.name} onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none" placeholder="John Doe" />
+                      <input 
+                        required 
+                        type="text" 
+                        value={userDetails.name} 
+                        onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} 
+                        readOnly={!!authUserId} // Locks field if authenticated
+                        className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} 
+                        placeholder="John Doe" 
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Registered Email</label>
-                      <input required type="email" value={userDetails.email} onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none" placeholder="john@example.com" />
+                      <input 
+                        required 
+                        type="email" 
+                        value={userDetails.email} 
+                        onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} 
+                        readOnly={!!authUserId} // Locks field if authenticated
+                        className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} 
+                        placeholder="john@example.com" 
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Select a Service</label>
@@ -434,12 +461,13 @@ export default function SupportWidget() {
         </div>
       )}
 
+      {/* FIXED WIDGET TRIGGER PICTURE */}
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
-          className="w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 bg-white border-[#8B2D75] p-2.5 overflow-hidden"
+          className="w-[65px] h-[65px] sm:w-[75px] sm:h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.25)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-[3px] bg-white border-[#8B2D75] overflow-hidden p-0"
         >
-          <img src="/support.png" alt="Support" className="w-full h-full object-contain" />
+          <img src="/support.png" alt="Support" className="w-full h-full object-cover" />
         </button>
       </div>
     </div>
