@@ -18,8 +18,31 @@ const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECT
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    // FIX: Extract messageId passed from frontend
-    const { ticketId, message, senderName, customerEmail, attachmentUrl, action, messageId } = body;
+    const { ticketId, message, senderName, customerEmail, attachmentUrl, action, messageId, userId } = body;
+
+    // NEW: API-Based Session Initialization
+    if (action === 'INIT_SESSION') {
+      if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
+      try {
+        // Find the most recent ticket for this user
+        const activeTickets = await databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
+          Query.equal('userId', userId),
+          Query.orderDesc('$createdAt'),
+          Query.limit(1)
+        ]);
+
+        if (activeTickets.documents.length > 0 && activeTickets.documents[0].status !== 'CLOSED') {
+          const activeTicket = activeTickets.documents[0];
+          const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
+            Query.equal('ticketId', activeTicket.$id), Query.orderAsc('$createdAt'), Query.limit(100),
+          ]);
+          return NextResponse.json({ status: 'SUCCESS', ticketId: activeTicket.$id, messages: historyDocs.documents, ticketStatus: activeTicket.status });
+        }
+        return NextResponse.json({ status: 'NO_ACTIVE_TICKET' });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
 
     if (action === 'FETCH_HISTORY') {
       if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
@@ -56,7 +79,11 @@ export async function POST(req: Request) {
           : (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage);
 
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
-            status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || ''
+            status: 'OPEN', 
+            sourceChannel: 'IN_APP', 
+            title: generatedTitle, 
+            customerEmail: customerEmail || '',
+            userId: userId || null // NEW: Save the User ID to the database
         }, securePermissions);
       } else {
         throw e; 
@@ -67,8 +94,6 @@ export async function POST(req: Request) {
 
     const isSystemOnboard = sanitizedMessage.includes('[System: Customer Onboarded]');
     const actualSenderType = isSystemOnboard ? 'SYSTEM' : 'CUSTOMER';
-
-    // FIX: Use the client-provided messageId (or fallback to unique if missing)
     const finalMessageId = messageId || ID.unique();
 
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, finalMessageId, {
