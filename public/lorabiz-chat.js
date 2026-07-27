@@ -1,16 +1,16 @@
 (function () {
   if (document.getElementById('lorabiz-support-widget-container')) return;
 
-  const SUPPORT_URL = 'https://support.lorabiz.com'; 
+  const SUPPORT_URL = 'https://support.lorabiz.com'; // Change to your local URL testing
 
   const container = document.createElement('div');
   container.id = 'lorabiz-support-widget-container';
   
-  // Use setProperty to force !important on z-index
+  // Make the launcher size larger (85px) for the Zoho style
   container.style.setProperty('position', 'fixed', 'important');
   container.style.setProperty('bottom', '24px', 'important');
   container.style.setProperty('right', '24px', 'important');
-  container.style.setProperty('width', '85px', 'important'); // Matches new avatar size
+  container.style.setProperty('width', '85px', 'important'); 
   container.style.setProperty('height', '85px', 'important');
   container.style.setProperty('z-index', '2147483647', 'important'); 
   container.style.setProperty('border', 'none', 'important');
@@ -18,7 +18,6 @@
   container.style.setProperty('transition', 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 'important');
   container.style.setProperty('pointer-events', 'none', 'important');
   
-  // Safari-specific fixes
   container.style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
   container.style.setProperty('transform', 'translateZ(0)', 'important');
 
@@ -43,15 +42,20 @@
       container.style.setProperty('height', '85px', 'important');
       container.style.setProperty('bottom', '24px', 'important');
       container.style.setProperty('right', '24px', 'important');
+      container.style.setProperty('top', 'auto', 'important');
+      container.style.setProperty('left', 'auto', 'important');
     }
     if (event.data === 'LORA_WIDGET_OPENED') {
-      // Make it fullscreen on mobile, standard box on desktop
       if (window.innerWidth <= 640) {
-        container.style.setProperty('width', '100%', 'important');
-        container.style.setProperty('height', '100%', 'important');
+        // STRICT MOBILE FULLSCREEN FIX (Prevents bleeding off the left side)
+        container.style.setProperty('width', '100vw', 'important');
+        container.style.setProperty('height', '100dvh', 'important');
         container.style.setProperty('bottom', '0', 'important');
         container.style.setProperty('right', '0', 'important');
+        container.style.setProperty('top', '0', 'important');
+        container.style.setProperty('left', '0', 'important');
       } else {
+        // Desktop Size
         container.style.setProperty('width', '400px', 'important'); 
         container.style.setProperty('height', '650px', 'important'); 
         container.style.setProperty('bottom', '24px', 'important');
