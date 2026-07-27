@@ -26,7 +26,6 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { ticketId, message, senderName, customerEmail, attachmentUrl, action, messageId, userId } = body;
 
-    // THE LIFECYCLE FIX: Allow users to end their own chats
     if (action === 'CLOSE_TICKET') {
       if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
       try {
@@ -41,32 +40,31 @@ export async function POST(req: Request) {
       }
     }
 
+    // THE HISTORY FIX: Return ALL tickets for the UI History view
     if (action === 'INIT_SESSION') {
       if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
       try {
-        // THE CROSS-DEVICE FIX: Fetch user tickets and sort in JS to avoid Appwrite Index crashes
         const userTickets = await databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
           Query.equal('userId', userId),
           Query.limit(50)
         ]);
 
+        let allTickets: any[] = [];
         if (userTickets.documents.length > 0) {
-          // Sort manually by newest first
-          const sortedTickets = userTickets.documents.sort((a, b) => 
+          allTickets = userTickets.documents.sort((a, b) => 
             new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime()
-          );
+          ).map(t => ({ $id: t.$id, title: t.title, status: t.status, $createdAt: t.$createdAt }));
           
-          // Find the most recent active ticket
-          const activeTicket = sortedTickets.find(t => t.status !== 'CLOSED');
+          const activeTicket = allTickets.find(t => t.status !== 'CLOSED');
 
           if (activeTicket) {
             const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
               Query.equal('ticketId', activeTicket.$id), Query.orderAsc('$createdAt'), Query.limit(100),
             ]);
-            return NextResponse.json({ status: 'SUCCESS', ticketId: activeTicket.$id, messages: historyDocs.documents, ticketStatus: activeTicket.status });
+            return NextResponse.json({ status: 'SUCCESS', ticketId: activeTicket.$id, messages: historyDocs.documents, ticketStatus: activeTicket.status, allTickets });
           }
         }
-        return NextResponse.json({ status: 'NO_ACTIVE_TICKET' });
+        return NextResponse.json({ status: 'NO_ACTIVE_TICKET', allTickets });
       } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
       }
@@ -102,25 +100,16 @@ export async function POST(req: Request) {
           : (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage);
 
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
-            status: 'OPEN', 
-            sourceChannel: 'IN_APP', 
-            title: generatedTitle, 
-            customerEmail: customerEmail || '',
-            userId: userId || null 
+            status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || '', userId: userId || null 
         }, securePermissions);
-      } else {
-        throw e; 
-      }
+      } else { throw e; }
     }
 
     if (ticket.status === 'CLOSED') return NextResponse.json({ error: 'Ticket closed.' }, { status: 400 });
 
     const isSystemOnboard = sanitizedMessage.includes('[System: Customer Onboarded]');
-    const actualSenderType = isSystemOnboard ? 'SYSTEM' : 'CUSTOMER';
-    const finalMessageId = messageId || ID.unique();
-
-    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, finalMessageId, {
-        ticketId, senderType: actualSenderType, senderId: ticketId, senderName: senderName || 'Client',
+    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, messageId || ID.unique(), {
+        ticketId, senderType: isSystemOnboard ? 'SYSTEM' : 'CUSTOMER', senderId: ticketId, senderName: senderName || 'Client',
         sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
     }, securePermissions);
 
@@ -149,18 +138,14 @@ export async function POST(req: Request) {
       await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
         status: 'PENDING_AGENT', aiSummary: summary,
       });
-
       await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-        ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
-        sourceChannel: 'IN_APP', content: handoverMessage,
+        ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System', sourceChannel: 'IN_APP', content: handoverMessage,
       }, securePermissions);
-
       return NextResponse.json({ status: 'HANDOVER_INITIATED', reply: handoverMessage });
     }
 
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-      ticketId, senderType: 'ASSISTANT', senderId: 'LORA_BOT', senderName: 'Lora',
-      sourceChannel: 'IN_APP', content: aiResponse,
+      ticketId, senderType: 'ASSISTANT', senderId: 'LORA_BOT', senderName: 'Lora', sourceChannel: 'IN_APP', content: aiResponse,
     }, securePermissions);
 
     return NextResponse.json({ status: 'SUCCESS', reply: aiResponse });
