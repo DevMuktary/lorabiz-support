@@ -30,8 +30,8 @@ export default function SupportWidget() {
   const [anonUserId, setAnonUserId] = useState<string | null>(null);
   const [historyTickets, setHistoryTickets] = useState<Ticket[]>([]);
   
-  // Onboarding State
-  const [userDetails, setUserDetails] = useState({ name: '', email: '' });
+  // Expanded Onboarding State
+  const [userDetails, setUserDetails] = useState({ name: '', email: '', topic: '', description: '' });
   
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,7 +43,6 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initialize Session & Load Saved Details
   useEffect(() => {
     const savedDetails = localStorage.getItem('lora_user_details');
     if (savedDetails) setUserDetails(JSON.parse(savedDetails));
@@ -60,7 +59,6 @@ export default function SupportWidget() {
     initAnonSession();
   }, []);
 
-  // Fetch Hub History
   useEffect(() => {
     if (!anonUserId || !isOpen || view !== 'HUB') return;
     databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
@@ -69,7 +67,6 @@ export default function SupportWidget() {
       .catch(console.error);
   }, [anonUserId, isOpen, view]);
 
-  // Handle Realtime Messages
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
     databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
@@ -104,7 +101,7 @@ export default function SupportWidget() {
       setActiveTicketId(existingTicketId);
       setView('CHAT');
     } else {
-      if (!userDetails.name || !userDetails.email) {
+      if (!userDetails.name || !userDetails.email || !userDetails.topic) {
         setView('ONBOARDING');
       } else {
         setActiveTicketId(`TICKET_${Date.now()}`);
@@ -114,13 +111,52 @@ export default function SupportWidget() {
     }
   };
 
-  const handleOnboardingSubmit = (e: React.FormEvent) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.size > 5 * 1024 * 1024) {
+        alert("File must be less than 5MB");
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userDetails.name || !userDetails.email) return;
+    if (!userDetails.name || !userDetails.email || !userDetails.topic || !anonUserId) return;
+    
     localStorage.setItem('lora_user_details', JSON.stringify(userDetails));
-    setActiveTicketId(`TICKET_${Date.now()}`);
+    
+    const newTicketId = `TICKET_${Date.now()}`;
+    setActiveTicketId(newTicketId);
     setMessages([]);
     setView('CHAT');
+    setIsTyping(true);
+
+    // Format the onboarding data as a system message and trigger the AI backend
+    try {
+      const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
+      
+      setMessages([{
+        $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name,
+        content: `I need help with: ${userDetails.topic}. ${userDetails.description}`
+      }]);
+
+      await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId: newTicketId, 
+          message: systemContextMessage, 
+          senderId: anonUserId,
+          senderName: userDetails.name, 
+        }),
+      });
+    } catch (error) {
+      console.error('Onboarding Chat Error:', error);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -158,7 +194,7 @@ export default function SupportWidget() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ticketId: activeTicketId, message: currentText, senderId: anonUserId,
-          senderName: userDetails.name, customerEmail: userDetails.email, attachmentUrl: uploadedFileUrl
+          senderName: userDetails.name, attachmentUrl: uploadedFileUrl
         }),
       });
     } catch (error) {
@@ -169,7 +205,6 @@ export default function SupportWidget() {
   };
 
   return (
-    // FIX: Removed width/height restrictions on the root to ensure mobile fullscreen sizing works
     <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none">
       {isOpen && (
         <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5">
@@ -228,23 +263,40 @@ export default function SupportWidget() {
             </div>
           )}
 
-          {/* ONBOARDING VIEW */}
+          {/* EXPANDED ONBOARDING VIEW */}
           {view === 'ONBOARDING' && (
-            <div className="flex-1 overflow-y-auto bg-white p-6 flex flex-col justify-center">
-              <div className="text-center mb-8">
+            <div className="flex-1 overflow-y-auto bg-white p-6 flex flex-col justify-start">
+              <div className="text-center mb-6 mt-4">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Let's get started</h2>
-                <p className="text-gray-500 text-sm">Please provide your details so we can assist you better and reach out if we get disconnected.</p>
+                <p className="text-gray-500 text-sm">Please provide your details so we can assist you better.</p>
               </div>
               <form onSubmit={handleOnboardingSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
-                  <input required type="text" value={userDetails.name} onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] focus:border-transparent outline-none" placeholder="John Doe" />
+                  <input required type="text" value={userDetails.name} onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none" placeholder="John Doe" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Registered Email</label>
-                  <input required type="email" value={userDetails.email} onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] focus:border-transparent outline-none" placeholder="john@example.com" />
+                  <input required type="email" value={userDetails.email} onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none" placeholder="john@example.com" />
                 </div>
-                <button type="submit" className="w-full bg-[#000000] text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 transition-colors mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Select a Service</label>
+                  <select required value={userDetails.topic} onChange={(e) => setUserDetails({...userDetails, topic: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none bg-white">
+                    <option value="" disabled>Choose a topic...</option>
+                    <option value="CAC Biz/LLC Registration">CAC Biz/LLC Registration</option>
+                    <option value="NIN Slip Generation">NIN Slip Generation</option>
+                    <option value="Airtime & Data Bundle">Airtime & Data Bundle</option>
+                    <option value="Tax ID Generation">Tax ID Generation</option>
+                    <option value="Account Creation Issue">Account Creation Issue</option>
+                    <option value="Login Issue">Login Issue</option>
+                    <option value="Other / General Support">Other / General Support</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Briefly describe your issue</label>
+                  <textarea rows={2} value={userDetails.description} onChange={(e) => setUserDetails({...userDetails, description: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none resize-none" placeholder="How can we help?"></textarea>
+                </div>
+                <button type="submit" className="w-full bg-[#000000] text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 transition-colors mt-2">
                   Start Chat
                 </button>
               </form>
@@ -253,16 +305,14 @@ export default function SupportWidget() {
 
           {/* CHAT VIEW */}
           {view === 'CHAT' && (
-             // ... [The Chat Feed rendering remains exactly identical as before] ...
              <div className="flex-1 flex flex-col min-h-0 bg-[#F8FAFC]">
                <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 relative">
-                  {/* Map Messages */}
                   {messages.map((msg) => {
                     const isUser = msg.senderType === 'CUSTOMER';
                     const isSystem = msg.senderType === 'SYSTEM';
 
                     if (isSystem) return (
-                      <div key={msg.$id} className="text-center my-3">
+                      <div key={msg.$id} className="text-center my-3 hidden">
                         <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full">{msg.content}</span>
                       </div>
                     );
@@ -290,6 +340,17 @@ export default function SupportWidget() {
 
                {/* Input Area */}
                <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe">
+                 {selectedFile && (
+                   <div className="mb-3 relative inline-block">
+                     <div className="bg-gray-100 rounded-lg p-2 pr-8 text-[13px] font-medium text-gray-700 flex items-center gap-2">
+                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        <span className="truncate max-w-[150px]">{selectedFile.name}</span>
+                     </div>
+                     <button onClick={() => setSelectedFile(null)} className="absolute top-1 right-1 bg-red-100 text-red-600 rounded-full p-1 hover:bg-red-200">
+                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                     </button>
+                   </div>
+                 )}
                  <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
                     <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75]">
@@ -306,7 +367,7 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* FIX: Zoho-Style Human Headset Launcher Icon */}
+      {/* Human Launcher Icon */}
       <div className="absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto">
         <button
           onClick={() => toggleWidget(!isOpen)}
@@ -317,12 +378,7 @@ export default function SupportWidget() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            // A realistic, high-quality image of a human with a headset (Zoho Style)
-            <img 
-              src="https://images.unsplash.com/photo-1596524430615-b46475ddff6e?auto=format&fit=crop&w=150&q=80" 
-              alt="Chat with us" 
-              className="w-full h-full object-cover rounded-full p-0.5"
-            />
+            <img src="https://images.unsplash.com/photo-1596524430615-b46475ddff6e?auto=format&fit=crop&w=150&q=80" alt="Chat with us" className="w-full h-full object-cover rounded-full p-0.5" />
           )}
         </button>
       </div>
