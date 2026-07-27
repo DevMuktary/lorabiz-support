@@ -15,14 +15,11 @@ const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_sup
 const TICKETS_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
 const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
-const MAX_MESSAGE_LENGTH = 2000;
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { ticketId, message, senderName, customerEmail, attachmentUrl, action } = body;
 
-    // --- SECURE HISTORY FETCHING ---
     if (action === 'FETCH_HISTORY') {
       if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
       try {
@@ -37,14 +34,11 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- MESSAGE SENDING LOGIC ---
     if (!ticketId || !message || message.trim().length === 0) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
     const sanitizedMessage = message.trim();
-    
-    // ULTIMATE SECURITY: Locked exclusively to agents. Public users access via this secure API gatekeeper.
     const securePermissions = [
       Permission.read(Role.team('agents')),
       Permission.update(Role.team('agents')),
@@ -70,8 +64,12 @@ export async function POST(req: Request) {
 
     if (ticket.status === 'CLOSED') return NextResponse.json({ error: 'Ticket closed.' }, { status: 400 });
 
+    // THE FIX: Save Onboarding payload strictly as SYSTEM so it is hidden in the UI
+    const isSystemOnboard = sanitizedMessage.includes('[System: Customer Onboarded]');
+    const actualSenderType = isSystemOnboard ? 'SYSTEM' : 'CUSTOMER';
+
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-        ticketId, senderType: 'CUSTOMER', senderId: ticketId, senderName: senderName || 'Client',
+        ticketId, senderType: actualSenderType, senderId: ticketId, senderName: senderName || 'Client',
         sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
     }, securePermissions);
 
