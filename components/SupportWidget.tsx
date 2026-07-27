@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { client } from '@/lib/appwrite-client';
+import { client, account } from '@/lib/appwrite-client'; // FIX: Imported account
 
 const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
 const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
@@ -18,6 +18,7 @@ interface Message {
 export default function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [ticketId, setTicketId] = useState<string | null>(null);
+  const [anonUserId, setAnonUserId] = useState<string | null>(null); // FIX: State for anon user
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -33,6 +34,20 @@ export default function SupportWidget() {
       );
     }
   };
+
+  // FIX: Initialize Anonymous Appwrite Session
+  useEffect(() => {
+    const initAnonSession = async () => {
+      try {
+        const currentUser = await account.get();
+        setAnonUserId(currentUser.$id);
+      } catch {
+        const session = await account.createAnonymousSession();
+        setAnonUserId(session.userId);
+      }
+    };
+    initAnonSession();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -64,7 +79,7 @@ export default function SupportWidget() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isClosed) return;
+    if (!inputText.trim() || isClosed || !anonUserId) return; // FIX: Ensure anonUserId is ready
 
     const currentText = inputText;
     setInputText(''); 
@@ -90,7 +105,7 @@ export default function SupportWidget() {
         body: JSON.stringify({
           ticketId: activeTicketId,
           message: currentText,
-          senderId: 'USER_ID_PLACEHOLDER',
+          senderId: anonUserId, // FIX: Pass actual user ID for DLS
           senderName: 'Client',
         }),
       });
@@ -198,10 +213,8 @@ export default function SupportWidget() {
                         : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm'
                     }`}
                   >
-                    {/* The message content comes first now */}
                     <span>{msg.content}</span>
                     
-                    {/* The sender name is now at the bottom right of the bubble */}
                     {!isUser && (
                       <span className="block text-[9px] font-bold text-[#8B2D75] mt-1.5 uppercase tracking-wider text-right opacity-80">
                         {msg.senderName}
@@ -231,13 +244,13 @@ export default function SupportWidget() {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                disabled={isClosed}
-                placeholder={isClosed ? "Chat ended." : "Type your message..."}
+                disabled={isClosed || !anonUserId}
+                placeholder={isClosed ? "Chat ended." : !anonUserId ? "Connecting..." : "Type your message..."}
                 className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-[#000000] focus:border-[#000000] block w-full p-2.5 disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={!inputText.trim() || isClosed}
+                disabled={!inputText.trim() || isClosed || !anonUserId}
                 className="p-2.5 bg-[#000000] text-[#8B2D75] rounded-lg hover:bg-[#1a1a1a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
