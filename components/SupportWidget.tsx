@@ -41,37 +41,39 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // SAFARI FIX: Communicate with Parent Website Storage
+  // SAFARI FIX: Read state securely passed via URL from the parent script
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.parent) {
-      window.parent.postMessage('LORA_REQUEST_STATE', '*');
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'LORA_RESTORE_STATE' && event.data.payload) {
-          const { savedUserDetails, savedTicketId } = event.data.payload;
-          if (savedUserDetails) setUserDetails(savedUserDetails);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const stateParam = params.get('state');
+      if (stateParam) {
+        try {
+          const { savedUserDetails, savedTicketId } = JSON.parse(decodeURIComponent(stateParam));
+          if (savedUserDetails) {
+             // Pre-fill email/name, clear topic/desc
+             setUserDetails({ ...savedUserDetails, topic: '', description: '' });
+          }
           if (savedTicketId) {
             setActiveTicketId(savedTicketId);
             setView('CHAT');
           }
+        } catch (e) {
+          console.error("Failed to parse state", e);
         }
-      };
-      window.addEventListener('message', handleMessage);
-      return () => window.removeEventListener('message', handleMessage);
+      }
     }
   }, []);
 
-  // Sync state to parent whenever it changes
+  // Tell Parent script to save state whenever it updates
   useEffect(() => {
     if (typeof window !== 'undefined' && window.parent && (userDetails.name || activeTicketId)) {
       window.parent.postMessage({
         type: 'LORA_SAVE_STATE',
-        payload: { savedUserDetails: userDetails, savedTicketId: activeTicketId }
+        payload: { savedUserDetails: { name: userDetails.name, email: userDetails.email }, savedTicketId: activeTicketId }
       }, '*');
     }
-  }, [userDetails, activeTicketId]);
+  }, [userDetails.name, userDetails.email, activeTicketId]);
 
-  // Appwrite Anonymous Session
   useEffect(() => {
     const initAnonSession = async () => {
       try {
@@ -85,7 +87,6 @@ export default function SupportWidget() {
     initAnonSession();
   }, []);
 
-  // Fetch Hub History
   useEffect(() => {
     if (!anonUserId || !isOpen || view !== 'HUB') return;
     databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
@@ -94,7 +95,6 @@ export default function SupportWidget() {
       .catch(console.error);
   }, [anonUserId, isOpen, view]);
 
-  // Handle Realtime Messages
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
     
@@ -107,7 +107,19 @@ export default function SupportWidget() {
       (response: any) => {
         if (response.events.includes('databases.*.collections.*.documents.*.create') && response.payload.ticketId === activeTicketId) {
           setMessages((prev) => {
+            // BOUNCE FIX: Smart Deduplication. 
+            // If we receive a message that matches an optimistic "temp_" message, we replace it.
             if (prev.find((m) => m.$id === response.payload.$id)) return prev;
+            
+            const isCustomer = response.payload.senderType === 'CUSTOMER';
+            if (isCustomer) {
+               const duplicateIndex = prev.findIndex(m => m.$id.startsWith('temp_') && m.content === response.payload.content);
+               if (duplicateIndex !== -1) {
+                  const newMessages = [...prev];
+                  newMessages[duplicateIndex] = response.payload as Message;
+                  return newMessages;
+               }
+            }
             return [...prev, response.payload as Message];
           });
         }
@@ -139,7 +151,6 @@ export default function SupportWidget() {
       setActiveTicketId(existingTicketId);
       setView('CHAT');
     } else {
-      setUserDetails(prev => ({ ...prev, topic: '', description: '' }));
       setView('ONBOARDING');
     }
   };
@@ -167,6 +178,11 @@ export default function SupportWidget() {
 
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
+      
+      setMessages([{
+        $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name,
+        content: `I need help with: ${userDetails.topic}. ${userDetails.description}`
+      }]);
 
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -188,8 +204,17 @@ export default function SupportWidget() {
     e.preventDefault();
     if ((!inputText.trim() && !selectedFile) || !anonUserId || !activeTicketId) return;
 
-    setIsTyping(true);
     let uploadedFileUrl = '';
+    const currentText = inputText;
+    setInputText(''); 
+
+    // BOUNCE FIX: Optimistically display the message instantly
+    setMessages((prev) => [...prev, {
+      $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
+      content: currentText, attachmentUrl: '' // File will appear when fully uploaded
+    }]);
+
+    setIsTyping(true);
 
     if (selectedFile) {
       setIsUploading(true);
@@ -205,9 +230,6 @@ export default function SupportWidget() {
       }
       setIsUploading(false); setSelectedFile(null);
     }
-
-    const currentText = inputText;
-    setInputText(''); 
 
     try {
       await fetch('/api/support/chat', {
@@ -248,9 +270,16 @@ export default function SupportWidget() {
           {view === 'HUB' && (
              <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
               <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                {/* Fixed Agent Avatar styling (object-contain, no tight clipping) */}
-                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border border-gray-200 shadow-sm p-1">
-                   <img src="/support.png" alt="Agent" className="w-full h-full object-contain" />
+                <div className="w-14 h-14 rounded-full bg-[#8B2D75] flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
+                  <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 11V9a4 4 0 0 0-8 0v2" />
+                    <rect x="6" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
+                    <rect x="15" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
+                    <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="currentColor" stroke="none" />
+                    <circle cx="12" cy="8" r="3.5" fill="currentColor" stroke="none" />
+                    <path d="M18 13v1.5a2.5 2.5 0 0 1-2.5 2.5H14" />
+                    <circle cx="13.5" cy="17" r="1.5" fill="currentColor" stroke="none" />
+                  </svg>
                 </div>
                 <div>
                   <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi there!</h2>
@@ -362,7 +391,6 @@ export default function SupportWidget() {
                     const isSystem = msg.senderType === 'SYSTEM';
 
                     if (isSystem) {
-                      // Filter out the ugly onboarding payload from being visible
                       if (msg.content.includes('[System: Customer Onboarded]')) return null;
                       
                       return (
@@ -432,13 +460,13 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* FIXED: Hides completely when widget is open so it doesn't fight the UI */}
+      {/* FIXED: Hides completely when widget is open so it doesn't fight the UI. 
+          Removed borders, backgrounds, and clipping so the support.png shows its raw shape */}
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
-          className="w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 bg-white border-[#8B2D75] p-1.5 overflow-hidden"
+          className="w-[85px] h-[85px] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 bg-transparent outline-none drop-shadow-2xl"
         >
-          {/* Custom Support Agent Image - object-contain ensures it is never cut off */}
           <img src="/support.png" alt="Support" className="w-full h-full object-contain" />
         </button>
       </div>
