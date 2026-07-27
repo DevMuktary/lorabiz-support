@@ -20,22 +20,35 @@ const MAX_MESSAGE_LENGTH = 2000;
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { ticketId, message, senderId, senderName, attachmentUrl } = body;
+    const { ticketId, message, senderName, customerEmail, attachmentUrl, action } = body;
 
-    if (!ticketId || typeof ticketId !== 'string') {
-      return NextResponse.json({ error: 'Invalid or missing ticketId' }, { status: 400 });
+    // --- SECURE HISTORY FETCHING ---
+    if (action === 'FETCH_HISTORY') {
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        const ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
+        const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
+          Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt'), Query.limit(100),
+        ]);
+        return NextResponse.json({ status: 'SUCCESS', messages: historyDocs.documents, ticketStatus: ticket.status });
+      } catch (e: any) {
+        if (e.code === 404) return NextResponse.json({ status: 'NOT_FOUND', messages: [] });
+        throw e;
+      }
     }
 
-    if (!senderId || typeof senderId !== 'string') {
-      return NextResponse.json({ error: 'Invalid or missing senderId' }, { status: 400 });
+    // --- MESSAGE SENDING LOGIC ---
+    if (!ticketId || !message || message.trim().length === 0) {
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
-    const sanitizedMessage = message ? message.trim() : '';
+    const sanitizedMessage = message.trim();
     
+    // ULTIMATE SECURITY: Locked exclusively to agents. Public users access via this secure API gatekeeper.
     const securePermissions = [
-      Permission.read(Role.user(senderId)), 
-      Permission.read(Role.team('agents')), 
-      Permission.update(Role.team('agents'))
+      Permission.read(Role.team('agents')),
+      Permission.update(Role.team('agents')),
+      Permission.delete(Role.team('agents'))
     ];
 
     let ticket;
@@ -43,50 +56,27 @@ export async function POST(req: Request) {
       ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
     } catch (e: any) {
       if (e.code === 404) {
-        // Simple AI Title logic: Grab the first 30 chars, or you can plug in an actual OpenAI call here
-        const generatedTitle = sanitizedMessage 
-          ? (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage)
-          : 'New Support Request';
+        const generatedTitle = sanitizedMessage.includes('[System: Customer Onboarded]') 
+          ? 'New Support Request' 
+          : (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage);
 
-        ticket = await databases.createDocument(
-          DATABASE_ID, 
-          TICKETS_COLLECTION_ID, 
-          ticketId, 
-          {
-            status: 'OPEN',
-            sourceChannel: 'IN_APP',
-            title: generatedTitle // Saving the generated title
-          },
-          securePermissions
-        );
+        ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+            status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || ''
+        }, securePermissions);
       } else {
         throw e; 
       }
     }
 
-    if (ticket.status === 'CLOSED') {
-      return NextResponse.json({ error: 'This ticket is closed. Please open a new inquiry.' }, { status: 400 });
-    }
+    if (ticket.status === 'CLOSED') return NextResponse.json({ error: 'Ticket closed.' }, { status: 400 });
 
-    // Save Customer Message (now supports attachmentUrl)
-    await databases.createDocument(
-      DATABASE_ID, 
-      MESSAGES_COLLECTION_ID, 
-      ID.unique(), 
-      {
-        ticketId,
-        senderType: 'CUSTOMER',
-        senderId: senderId,
-        senderName: senderName || 'Client',
-        sourceChannel: 'IN_APP',
-        content: sanitizedMessage || '[Attachment Sent]',
-        attachmentUrl: attachmentUrl || null 
-      },
-      securePermissions
-    );
+    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+        ticketId, senderType: 'CUSTOMER', senderId: ticketId, senderName: senderName || 'Client',
+        sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
+    }, securePermissions);
 
     if (ticket.status === 'PENDING_AGENT' || ticket.status === 'IN_PROGRESS') {
-      return NextResponse.json({ status: 'RECEIVED', aiProcessed: false });
+      return NextResponse.json({ status: 'RECEIVED' });
     }
 
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
@@ -94,8 +84,7 @@ export async function POST(req: Request) {
     ]);
 
     const formattedHistory = historyDocs.documents.map((doc) => ({
-      senderType: doc.senderType,
-      content: doc.content || '[Attachment]',
+      senderType: doc.senderType, content: doc.content || '[Attachment]',
     }));
 
     const aiResponse = await processTicketWithAI(ticketId, formattedHistory);
@@ -104,7 +93,6 @@ export async function POST(req: Request) {
       const hoursStatus = checkBusinessHours();
       const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
       const summary = await summarizeChatForAgent(transcript);
-
       const handoverMessage = hoursStatus.isOnline
         ? 'I have added you to our support queue. A human agent will connect with you shortly.'
         : hoursStatus.message;
