@@ -40,6 +40,7 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Initialize Anonymous Appwrite Session
   useEffect(() => {
     const initAnonSession = async () => {
       try {
@@ -53,6 +54,7 @@ export default function SupportWidget() {
     initAnonSession();
   }, []);
 
+  // Fetch Hub History (Only loads tickets this user created due to DLS)
   useEffect(() => {
     if (!anonUserId || !isOpen || view !== 'HUB') return;
     
@@ -71,9 +73,11 @@ export default function SupportWidget() {
     loadHistory();
   }, [anonUserId, isOpen, view]);
 
+  // Handle Realtime Chat Messages
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
 
+    // Load past messages for this ticket
     databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', activeTicketId), Query.orderAsc('$createdAt')
     ]).then(res => setMessages(res.documents as unknown as Message[]));
@@ -99,6 +103,14 @@ export default function SupportWidget() {
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
     if (newState && !activeTicketId) setView('HUB');
+    
+    // Notify the host website to expand/contract the iframe container
+    if (typeof window !== 'undefined' && window.parent) {
+      window.parent.postMessage(
+        newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', 
+        '*' 
+      );
+    }
   };
 
   const handleStartChat = (existingTicketId?: string) => {
@@ -138,6 +150,7 @@ export default function SupportWidget() {
           selectedFile, 
           [Permission.read(Role.user(anonUserId)), Permission.read(Role.team('agents'))]
         );
+        // Typescript Build Fix: getFileView returns a string URL directly in the web SDK
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
         console.error("Upload failed", err);
@@ -153,6 +166,7 @@ export default function SupportWidget() {
     const currentText = inputText;
     setInputText(''); 
 
+    // Optimistic UI Update
     setMessages((prev) => [...prev, {
       $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: 'You',
       content: currentText, attachmentUrl: uploadedFileUrl
@@ -173,7 +187,6 @@ export default function SupportWidget() {
   };
 
   return (
-    // FIX 1: Changed z-50 to z-[99999] so it forces itself to the very front layer
     <div className="fixed bottom-0 right-0 z-[99999] flex flex-col items-end p-0 sm:p-6 w-full h-[100dvh] sm:h-auto sm:w-auto pointer-events-none">
       {isOpen && (
         <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border border-gray-200 animate-in slide-in-from-bottom-5">
@@ -197,9 +210,18 @@ export default function SupportWidget() {
           {/* HUB VIEW */}
           {view === 'HUB' && (
             <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
-              <div>
-                <h2 className="text-2xl font-extrabold text-black mb-2 tracking-tight">Hi there 👋</h2>
-                <p className="text-[16px] text-gray-600">How can we help you today?</p>
+              
+              {/* Upgraded Welcome Card */}
+              <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <img 
+                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&q=80" 
+                  alt="Support Agent" 
+                  className="w-14 h-14 rounded-full object-cover shadow-sm border-2 border-[#8B2D75]"
+                />
+                <div>
+                  <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi there!</h2>
+                  <p className="text-[14px] text-gray-600 leading-snug">I'm Lora. How can we help you today?</p>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -336,7 +358,7 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* FIX 2: Replaced the small black button with a large, transparent, background-free human avatar SVG */}
+      {/* Human Agent Launcher Button */}
       <div className="sm:p-0 p-4 pointer-events-auto">
         <button
           onClick={() => toggleWidget(!isOpen)}
