@@ -42,9 +42,14 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Initialize Session
   useEffect(() => {
     const savedDetails = localStorage.getItem('lora_user_details');
-    if (savedDetails) setUserDetails(JSON.parse(savedDetails));
+    if (savedDetails) {
+      const parsed = JSON.parse(savedDetails);
+      // Pre-fill name and email, but leave topic/description blank for new chats
+      setUserDetails({ name: parsed.name || '', email: parsed.email || '', topic: '', description: '' });
+    }
 
     const initAnonSession = async () => {
       try {
@@ -58,6 +63,7 @@ export default function SupportWidget() {
     initAnonSession();
   }, []);
 
+  // Fetch Hub History
   useEffect(() => {
     if (!anonUserId || !isOpen || view !== 'HUB') return;
     databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
@@ -66,8 +72,11 @@ export default function SupportWidget() {
       .catch(console.error);
   }, [anonUserId, isOpen, view]);
 
+  // Handle Realtime Messages
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
+    
+    // Load initial messages
     databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', activeTicketId), Query.orderAsc('$createdAt')
     ]).then(res => setMessages(res.documents as unknown as Message[]));
@@ -76,15 +85,26 @@ export default function SupportWidget() {
       `databases.${DATABASE_ID}.collections.${MESSAGES_COLLECTION_ID}.documents`,
       (response: any) => {
         if (response.events.includes('databases.*.collections.*.documents.*.create') && response.payload.ticketId === activeTicketId) {
-          setMessages((prev) => prev.find((m) => m.$id === response.payload.$id) ? prev : [...prev, response.payload as Message]);
+          setMessages((prev) => {
+            // Prevent duplicates if it somehow double-fires
+            if (prev.find((m) => m.$id === response.payload.$id)) return prev;
+            return [...prev, response.payload as Message];
+          });
         }
       }
     );
     return () => unsubscribe();
   }, [activeTicketId, view]);
 
+  // Scroll to bottom helper
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 150);
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollToBottom();
   }, [messages, isTyping, view]);
 
   const toggleWidget = (newState: boolean) => {
@@ -100,13 +120,9 @@ export default function SupportWidget() {
       setActiveTicketId(existingTicketId);
       setView('CHAT');
     } else {
-      if (!userDetails.name || !userDetails.email || !userDetails.topic) {
-        setView('ONBOARDING');
-      } else {
-        setActiveTicketId(`TICKET_${Date.now()}`);
-        setMessages([]);
-        setView('CHAT');
-      }
+      // Always show onboarding for new chats to capture Topic & Description
+      setUserDetails(prev => ({ ...prev, topic: '', description: '' }));
+      setView('ONBOARDING');
     }
   };
 
@@ -125,7 +141,8 @@ export default function SupportWidget() {
     e.preventDefault();
     if (!userDetails.name || !userDetails.email || !userDetails.topic || !anonUserId) return;
     
-    localStorage.setItem('lora_user_details', JSON.stringify(userDetails));
+    // Save name and email for next time
+    localStorage.setItem('lora_user_details', JSON.stringify({ name: userDetails.name, email: userDetails.email }));
     
     const newTicketId = `TICKET_${Date.now()}`;
     setActiveTicketId(newTicketId);
@@ -134,12 +151,8 @@ export default function SupportWidget() {
     setIsTyping(true);
 
     try {
+      // This sends the initial context to the AI (and generates the title via your backend)
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
-      
-      setMessages([{
-        $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name,
-        content: `I need help with: ${userDetails.topic}. ${userDetails.description}`
-      }]);
 
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -182,11 +195,8 @@ export default function SupportWidget() {
     const currentText = inputText;
     setInputText(''); 
 
-    setMessages((prev) => [...prev, {
-      $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
-      content: currentText, attachmentUrl: uploadedFileUrl
-    }]);
-
+    // We removed the optimistic UI update here so it only loads from the DB. No more double messages!
+    
     try {
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -226,17 +236,8 @@ export default function SupportWidget() {
           {view === 'HUB' && (
              <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
               <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                {/* Zoho Style Avatar inside the Hub */}
-                <div className="w-14 h-14 rounded-full bg-[#8B2D75] flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
-                  <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 11V9a4 4 0 0 0-8 0v2" />
-                    <rect x="6" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
-                    <rect x="15" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
-                    <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="currentColor" stroke="none" />
-                    <circle cx="12" cy="8" r="3.5" fill="currentColor" stroke="none" />
-                    <path d="M18 13v1.5a2.5 2.5 0 0 1-2.5 2.5H14" />
-                    <circle cx="13.5" cy="17" r="1.5" fill="currentColor" stroke="none" />
-                  </svg>
+                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border-2 border-[#8B2D75] overflow-hidden">
+                   <img src="/support.png" alt="Agent" className="w-full h-full object-cover" />
                 </div>
                 <div>
                   <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi there!</h2>
@@ -249,9 +250,20 @@ export default function SupportWidget() {
                   <span className="font-bold text-[16px]">Send us a message</span>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                 </button>
+
+                {/* Restored WhatsApp and Email Buttons */}
+                <div className="flex gap-3">
+                  <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
+                    <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+                    <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
+                  </a>
+                  <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
+                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <span className="text-[14px] font-bold text-gray-800">Email</span>
+                  </a>
+                </div>
               </div>
 
-              {/* History Section */}
               <div>
                 <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Recent Conversations</h3>
                 {historyTickets.length > 0 ? (
@@ -273,7 +285,6 @@ export default function SupportWidget() {
                 )}
               </div>
 
-              {/* FAQ Section */}
               <div className="mt-4 border-t border-gray-200 pt-6 pb-4">
                 <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-4">Frequently Asked Questions</h3>
                 <div className="space-y-4">
@@ -339,9 +350,12 @@ export default function SupportWidget() {
                     const isUser = msg.senderType === 'CUSTOMER';
                     const isSystem = msg.senderType === 'SYSTEM';
 
+                    // System messages (like "Handed over to agent") are now VISIBLE 
                     if (isSystem) return (
-                      <div key={msg.$id} className="text-center my-3 hidden">
-                        <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full">{msg.content}</span>
+                      <div key={msg.$id} className="text-center my-3">
+                        <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">
+                           {msg.content}
+                        </span>
                       </div>
                     );
 
@@ -368,24 +382,33 @@ export default function SupportWidget() {
 
                {/* Input Area */}
                <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe">
+                 {/* Re-designed File Preview - Placed Above Input to prevent overlapping */}
                  {selectedFile && (
-                   <div className="mb-3 relative inline-block">
-                     <div className="bg-gray-100 rounded-lg p-2 pr-8 text-[13px] font-medium text-gray-700 flex items-center gap-2">
-                        <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                        <span className="truncate max-w-[150px]">{selectedFile.name}</span>
-                     </div>
-                     <button onClick={() => setSelectedFile(null)} className="absolute top-1 right-1 bg-red-100 text-red-600 rounded-full p-1 hover:bg-red-200">
-                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                     </button>
+                   <div className="mb-3 relative flex items-center bg-gray-100 rounded-lg p-3 pr-10 text-[13px] font-medium text-gray-700 w-full shadow-sm">
+                      <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                      <span className="truncate flex-1">{selectedFile.name}</span>
+                      <button onClick={() => setSelectedFile(null)} className="absolute right-3 bg-red-100 text-red-600 rounded-full p-1.5 hover:bg-red-200 transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
                    </div>
                  )}
                  <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
                     <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75]">
+                    
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75] transition-colors rounded-xl hover:bg-gray-50">
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                     </button>
-                    <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="Message..." className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000]" />
-                    <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50">
+                    
+                    <input 
+                       type="text" 
+                       value={inputText} 
+                       onChange={(e) => setInputText(e.target.value)} 
+                       onFocus={scrollToBottom} // Force scroll on mobile keyboard open
+                       placeholder="Message..." 
+                       className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000]" 
+                    />
+                    
+                    <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95">
                       {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
                     </button>
                  </form>
@@ -395,26 +418,18 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* Zoho-Style Main Launcher Button */}
+      {/* Main Launcher Icon updated to use the custom uploaded support.png */}
       <div className="absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto">
         <button
           onClick={() => toggleWidget(!isOpen)}
-          className={`w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isOpen ? 'bg-black text-white' : 'bg-[#8B2D75] text-white'}`}
+          className={`w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 overflow-hidden ${isOpen ? 'bg-black border-transparent' : 'bg-white border-[#8B2D75]'}`}
         >
           {isOpen ? (
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            <svg className="w-[42px] h-[42px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 11V9a4 4 0 0 0-8 0v2" />
-              <rect x="6" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
-              <rect x="15" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
-              <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="currentColor" stroke="none" />
-              <circle cx="12" cy="8" r="3.5" fill="currentColor" stroke="none" />
-              <path d="M18 13v1.5a2.5 2.5 0 0 1-2.5 2.5H14" />
-              <circle cx="13.5" cy="17" r="1.5" fill="currentColor" stroke="none" />
-            </svg>
+            <img src="/support.png" alt="Support" className="w-full h-full object-cover" />
           )}
         </button>
       </div>
