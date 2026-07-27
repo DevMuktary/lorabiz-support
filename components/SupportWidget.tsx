@@ -1,12 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { client, account, databases, storage } from '@/lib/appwrite-client';
-import { Query, ID, Permission, Role } from 'appwrite';
+import { storage } from '@/lib/appwrite-client';
+import { ID, Permission, Role } from 'appwrite';
 
-const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
-const TICKETS_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
-const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 const BUCKET_ID = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID || 'attachments';
 
 interface Ticket {
@@ -27,11 +24,10 @@ interface Message {
 export default function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<'HUB' | 'ONBOARDING' | 'CHAT'>('HUB');
-  const [anonUserId, setAnonUserId] = useState<string | null>(null);
-  const [historyTickets, setHistoryTickets] = useState<Ticket[]>([]);
   
   const [userDetails, setUserDetails] = useState({ name: '', email: '', topic: '', description: '' });
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -41,102 +37,68 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // SAFARI FIX: Read state securely passed via URL from the parent script
+  // SAFARI FIX: Read state injected by parent script via URL
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const stateParam = params.get('state');
       if (stateParam) {
         try {
-          const { savedUserDetails, savedTicketId } = JSON.parse(decodeURIComponent(stateParam));
-          if (savedUserDetails) {
-             // Pre-fill email/name, clear topic/desc
-             setUserDetails({ ...savedUserDetails, topic: '', description: '' });
+          const parsed = JSON.parse(stateParam);
+          if (parsed.savedUserDetails) {
+            setUserDetails(prev => ({ ...prev, name: parsed.savedUserDetails.name || '', email: parsed.savedUserDetails.email || '' }));
           }
-          if (savedTicketId) {
-            setActiveTicketId(savedTicketId);
+          if (parsed.savedTicketId) {
+            setActiveTicketId(parsed.savedTicketId);
             setView('CHAT');
           }
-        } catch (e) {
-          console.error("Failed to parse state", e);
-        }
+        } catch (e) {}
       }
     }
   }, []);
 
-  // Tell Parent script to save state whenever it updates
+  // Sync state back to parent website LocalStorage
   useEffect(() => {
     if (typeof window !== 'undefined' && window.parent && (userDetails.name || activeTicketId)) {
       window.parent.postMessage({
         type: 'LORA_SAVE_STATE',
-        payload: { savedUserDetails: { name: userDetails.name, email: userDetails.email }, savedTicketId: activeTicketId }
+        payload: { savedUserDetails: userDetails, savedTicketId: activeTicketId }
       }, '*');
     }
-  }, [userDetails.name, userDetails.email, activeTicketId]);
+  }, [userDetails, activeTicketId]);
 
-  useEffect(() => {
-    const initAnonSession = async () => {
-      try {
-        const currentUser = await account.get();
-        setAnonUserId(currentUser.$id);
-      } catch {
-        const session = await account.createAnonymousSession();
-        setAnonUserId(session.userId);
-      }
-    };
-    initAnonSession();
-  }, []);
-
-  useEffect(() => {
-    if (!anonUserId || !isOpen || view !== 'HUB') return;
-    databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
-      Query.equal('sourceChannel', 'IN_APP'), Query.orderDesc('$createdAt'), Query.limit(5)
-    ]).then(res => setHistoryTickets(res.documents as unknown as Ticket[]))
-      .catch(console.error);
-  }, [anonUserId, isOpen, view]);
-
+  // SECURE POLLING: Bypasses Safari blocking Appwrite Websockets
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
-    
-    databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
-      Query.equal('ticketId', activeTicketId), Query.orderAsc('$createdAt')
-    ]).then(res => setMessages(res.documents as unknown as Message[]));
 
-    const unsubscribe = client.subscribe(
-      `databases.${DATABASE_ID}.collections.${MESSAGES_COLLECTION_ID}.documents`,
-      (response: any) => {
-        if (response.events.includes('databases.*.collections.*.documents.*.create') && response.payload.ticketId === activeTicketId) {
-          setMessages((prev) => {
-            // BOUNCE FIX: Smart Deduplication. 
-            // If we receive a message that matches an optimistic "temp_" message, we replace it.
-            if (prev.find((m) => m.$id === response.payload.$id)) return prev;
-            
-            const isCustomer = response.payload.senderType === 'CUSTOMER';
-            if (isCustomer) {
-               const duplicateIndex = prev.findIndex(m => m.$id.startsWith('temp_') && m.content === response.payload.content);
-               if (duplicateIndex !== -1) {
-                  const newMessages = [...prev];
-                  newMessages[duplicateIndex] = response.payload as Message;
-                  return newMessages;
-               }
-            }
-            return [...prev, response.payload as Message];
+    const fetchChatHistory = async () => {
+      try {
+        const res = await fetch('/api/support/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'FETCH_HISTORY', ticketId: activeTicketId })
+        });
+        const data = await res.json();
+        if (data.messages) {
+          // Replace state with server truth, maintaining any optimistic messages sent within the last second
+          setMessages(prev => {
+             const serverIds = new Set(data.messages.map((m: any) => m.$id));
+             const optimisticMessages = prev.filter(m => m.$id.startsWith('temp_') && !serverIds.has(m.$id));
+             return [...data.messages, ...optimisticMessages];
           });
         }
-      }
-    );
-    return () => unsubscribe();
+      } catch (err) {}
+    };
+
+    fetchChatHistory(); // Initial fetch
+    const interval = setInterval(fetchChatHistory, 3000); // Poll every 3s
+    return () => clearInterval(interval);
   }, [activeTicketId, view]);
 
   const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 150);
+    setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, 150);
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping, view]);
+  useEffect(() => { scrollToBottom(); }, [messages, isTyping, view]);
 
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
@@ -146,31 +108,28 @@ export default function SupportWidget() {
     }
   };
 
-  const handleStartChat = (existingTicketId?: string) => {
-    if (existingTicketId) {
-      setActiveTicketId(existingTicketId);
+  const handleStartChat = () => {
+    if (activeTicketId) {
       setView('CHAT');
     } else {
+      setUserDetails(prev => ({ ...prev, topic: '', description: '' }));
       setView('ONBOARDING');
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File must be less than 5MB");
-        return;
-      }
-      setSelectedFile(file);
+      if (e.target.files[0].size > 5 * 1024 * 1024) { alert("File must be less than 5MB"); return; }
+      setSelectedFile(e.target.files[0]);
     }
   };
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userDetails.name || !userDetails.email || !userDetails.topic || !anonUserId) return;
+    if (!userDetails.name || !userDetails.email || !userDetails.topic) return;
     
-    const newTicketId = `TICKET_${Date.now()}`;
+    // Generate an unguessable ticket ID for security
+    const newTicketId = `TICKET_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
     setActiveTicketId(newTicketId);
     setMessages([]);
     setView('CHAT');
@@ -178,55 +137,48 @@ export default function SupportWidget() {
 
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
-      
-      setMessages([{
-        $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name,
-        content: `I need help with: ${userDetails.topic}. ${userDetails.description}`
-      }]);
 
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ticketId: newTicketId, 
-          message: systemContextMessage, 
-          senderId: anonUserId,
-          senderName: userDetails.name, 
-        }),
+        body: JSON.stringify({ ticketId: newTicketId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email }),
       });
-    } catch (error) {
-      console.error('Onboarding Chat Error:', error);
-    } finally {
+      
+      // Send the actual visible message next
+      await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId: newTicketId, message: `I need help with: ${userDetails.topic}. ${userDetails.description}`, senderName: userDetails.name }),
+      });
+    } catch (error) {} finally {
       setIsTyping(false);
     }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!inputText.trim() && !selectedFile) || !anonUserId || !activeTicketId) return;
+    if ((!inputText.trim() && !selectedFile) || !activeTicketId) return;
 
-    let uploadedFileUrl = '';
+    // OPTIMISTIC UI: Instantly render message without waiting for server bounce
     const currentText = inputText;
+    const tempId = `temp_${Date.now()}`;
     setInputText(''); 
-
-    // BOUNCE FIX: Optimistically display the message instantly
+    
     setMessages((prev) => [...prev, {
-      $id: `temp_${Date.now()}`, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
-      content: currentText, attachmentUrl: '' // File will appear when fully uploaded
+      $id: tempId, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
+      content: currentText, attachmentUrl: selectedFile ? URL.createObjectURL(selectedFile) : undefined
     }]);
-
+    scrollToBottom();
+    
     setIsTyping(true);
+    let uploadedFileUrl = '';
 
     if (selectedFile) {
       setIsUploading(true);
       try {
-        const upload = await storage.createFile(
-          BUCKET_ID, ID.unique(), selectedFile, 
-          [Permission.read(Role.user(anonUserId)), Permission.read(Role.team('agents'))]
-        );
+        // Upload file securely, only agents can read it
+        const upload = await storage.createFile(BUCKET_ID, ID.unique(), selectedFile, [Permission.read(Role.team('agents'))]);
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
         alert("File upload failed.");
-        setIsUploading(false); setIsTyping(false); return;
       }
       setIsUploading(false); setSelectedFile(null);
     }
@@ -234,14 +186,9 @@ export default function SupportWidget() {
     try {
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ticketId: activeTicketId, message: currentText, senderId: anonUserId,
-          senderName: userDetails.name, attachmentUrl: uploadedFileUrl
-        }),
+        body: JSON.stringify({ ticketId: activeTicketId, message: currentText, senderName: userDetails.name, attachmentUrl: uploadedFileUrl }),
       });
-    } catch (error) {
-      console.error('Chat Error:', error);
-    } finally {
+    } catch (error) {} finally {
       setIsTyping(false);
     }
   };
@@ -270,16 +217,8 @@ export default function SupportWidget() {
           {view === 'HUB' && (
              <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
               <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                <div className="w-14 h-14 rounded-full bg-[#8B2D75] flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
-                  <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 11V9a4 4 0 0 0-8 0v2" />
-                    <rect x="6" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
-                    <rect x="15" y="10" width="3" height="5" rx="1.5" fill="currentColor" stroke="none" />
-                    <path d="M12 14c-3.5 0-6 2.5-6 6h12c0-3.5-2.5-6-6-6z" fill="currentColor" stroke="none" />
-                    <circle cx="12" cy="8" r="3.5" fill="currentColor" stroke="none" />
-                    <path d="M18 13v1.5a2.5 2.5 0 0 1-2.5 2.5H14" />
-                    <circle cx="13.5" cy="17" r="1.5" fill="currentColor" stroke="none" />
-                  </svg>
+                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border-2 border-[#8B2D75] overflow-hidden p-1.5">
+                   <img src="/support.png" alt="Agent" className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi there!</h2>
@@ -305,26 +244,17 @@ export default function SupportWidget() {
                 </div>
               </div>
 
-              <div>
-                <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Recent Conversations</h3>
-                {historyTickets.length > 0 ? (
-                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
-                    {historyTickets.map((t) => (
-                      <button key={t.$id} onClick={() => handleStartChat(t.$id)} className="w-full text-left p-4 border-b last:border-0 hover:bg-gray-50 flex items-center justify-between">
-                        <div className="truncate pr-4">
-                          <p className="text-[15px] font-semibold text-gray-800 truncate">{t.title || 'Support Request'}</p>
-                          <p className="text-[12px] text-gray-500 mt-0.5">{new Date(t.$createdAt).toLocaleDateString()}</p>
-                        </div>
-                        <span className="shrink-0 text-[#8B2D75]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-white border border-gray-100 rounded-xl p-6 text-center shadow-sm">
-                    <p className="text-[13px] text-gray-500 font-medium">You don't have any past conversations.</p>
-                  </div>
-                )}
-              </div>
+              {activeTicketId && (
+                <div>
+                  <button onClick={() => setView('CHAT')} className="w-full bg-white border border-gray-100 rounded-xl p-4 text-left shadow-sm flex items-center justify-between hover:bg-gray-50">
+                    <div className="truncate pr-4">
+                       <p className="text-[15px] font-semibold text-gray-800">Resume Chat</p>
+                       <p className="text-[12px] text-gray-500">Continue your current conversation</p>
+                    </div>
+                    <svg className="w-5 h-5 text-[#8B2D75]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4 border-t border-gray-200 pt-6 pb-4">
                 <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-4">Frequently Asked Questions</h3>
@@ -391,6 +321,7 @@ export default function SupportWidget() {
                     const isSystem = msg.senderType === 'SYSTEM';
 
                     if (isSystem) {
+                      // HIDE the onboarding payload string from the UI entirely
                       if (msg.content.includes('[System: Customer Onboarded]')) return null;
                       
                       return (
@@ -437,7 +368,7 @@ export default function SupportWidget() {
                  <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
                     <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
                     
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75] transition-colors rounded-xl hover:bg-gray-50">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75] transition-colors rounded-xl hover:bg-gray-50 shrink-0">
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                     </button>
                     
@@ -447,10 +378,10 @@ export default function SupportWidget() {
                        onChange={(e) => setInputText(e.target.value)} 
                        onFocus={scrollToBottom} 
                        placeholder="Message..." 
-                       className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000]" 
+                       className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000] min-w-0" 
                     />
                     
-                    <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95">
+                    <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0">
                       {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
                     </button>
                  </form>
@@ -460,13 +391,13 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* FIXED: Hides completely when widget is open so it doesn't fight the UI. 
-          Removed borders, backgrounds, and clipping so the support.png shows its raw shape */}
+      {/* FIXED: Added p-2.5 for inner padding so the image fits perfectly and is never cut off */}
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
-          className="w-[85px] h-[85px] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 bg-transparent outline-none drop-shadow-2xl"
+          className="w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 bg-white border-[#8B2D75] p-2.5 overflow-hidden"
         >
+          {/* object-contain ensures the image scales perfectly within the padding without clipping */}
           <img src="/support.png" alt="Support" className="w-full h-full object-contain" />
         </button>
       </div>
