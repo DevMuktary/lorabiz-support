@@ -1,7 +1,13 @@
 (function () {
   if (document.getElementById('lorabiz-support-widget-container')) return;
 
-  const SUPPORT_URL = 'https://support.lorabiz.com'; // Change to your actual domain in production
+  const SUPPORT_URL = 'https://support.lorabiz.com'; // Change to your local URL testing
+
+  // SAFARI FIX: Read state from parent site and encode it to bypass iframe storage blocks
+  let savedState = '';
+  try {
+     savedState = btoa(localStorage.getItem('lora_saved_state') || '');
+  } catch(e) {}
 
   const container = document.createElement('div');
   container.id = 'lorabiz-support-widget-container';
@@ -20,6 +26,8 @@
   container.style.setProperty('transform', 'translateZ(0)', 'important');
 
   const iframe = document.createElement('iframe');
+  // Inject the state into the URL directly
+  iframe.src = `${SUPPORT_URL}/widget?init_state=${savedState}`;
   iframe.id = 'lorabiz-support-iframe';
   iframe.setAttribute('allowtransparency', 'true');
   
@@ -30,19 +38,10 @@
   iframe.style.setProperty('pointer-events', 'auto', 'important'); 
   iframe.style.setProperty('color-scheme', 'normal', 'important');
 
-  // SAFARI FIX: Read state securely from the host website and pass it via URL
-  const savedState = localStorage.getItem('lora_saved_state');
-  let srcUrl = `${SUPPORT_URL}/widget`;
-  if (savedState) {
-    srcUrl += `?state=${encodeURIComponent(savedState)}`;
-  }
-  iframe.src = srcUrl;
-
   container.appendChild(iframe);
   document.body.appendChild(container);
 
   window.addEventListener('message', function (event) {
-    // 1. Handle Sizing
     if (event.data === 'LORA_WIDGET_CLOSED') {
       container.style.setProperty('width', '85px', 'important');
       container.style.setProperty('height', '85px', 'important');
@@ -66,8 +65,8 @@
         container.style.setProperty('right', '24px', 'important');
       }
     }
-
-    // 2. Handle Storage Saving from Widget
+    
+    // Listen for state saves from the widget and store them in the parent domain
     if (event.data && event.data.type === 'LORA_SAVE_STATE') {
       localStorage.setItem('lora_saved_state', JSON.stringify(event.data.payload));
     }
