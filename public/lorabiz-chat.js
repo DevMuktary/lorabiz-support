@@ -1,9 +1,15 @@
 (function () {
+  console.log("[LORA: EMBED] Script execution started.");
+  if (window.LORA_INIT_WIDGET) {
+    console.log("[LORA: EMBED] LORA_INIT_WIDGET already exists. Aborting duplicate execution.");
+    return;
+  }
+
   window.LORA_INIT_WIDGET = function(authData) {
+    console.log("[LORA: EMBED] LORA_INIT_WIDGET called with data:", authData);
     const SUPPORT_URL = 'https://support.lorabiz.com'; 
     let widgetUrl = `${SUPPORT_URL}/widget`;
 
-    // INJECT AUTH DATA DIRECTLY INTO URL
     if (authData && authData.userId) {
       const params = new URLSearchParams({
         userId: authData.userId,
@@ -11,19 +17,23 @@
         email: authData.email || ''
       });
       widgetUrl += `?${params.toString()}`;
+      console.log("[LORA: EMBED] Constructed Authenticated Widget URL:", widgetUrl);
+    } else {
+      console.log("[LORA: EMBED] Constructed Anonymous Widget URL:", widgetUrl);
     }
 
     let existingIframe = document.getElementById('lorabiz-support-iframe');
     
-    // IF THE WIDGET ALREADY EXISTS, JUST UPDATE THE URL
     if (existingIframe) {
+      console.log("[LORA: EMBED] Iframe already exists.");
       if (existingIframe.src !== widgetUrl) {
+        console.log("[LORA: EMBED] Updating existing iframe SRC.");
         existingIframe.src = widgetUrl;
       }
-      return; // Stop here so we don't create duplicate containers
+      return; 
     }
 
-    // OTHERWISE, CREATE THE WIDGET FOR THE FIRST TIME
+    console.log("[LORA: EMBED] Creating new iframe container.");
     const container = document.createElement('div');
     container.id = 'lorabiz-support-widget-container';
     
@@ -54,10 +64,14 @@
 
     container.appendChild(iframe);
     document.body.appendChild(container);
+    console.log("[LORA: EMBED] Iframe successfully injected into DOM.");
   };
 
   if (window.lorabizUserAuthData !== undefined) {
+    console.log("[LORA: EMBED] Found window.lorabizUserAuthData. Initializing immediately.");
     window.LORA_INIT_WIDGET(window.lorabizUserAuthData);
+  } else {
+    console.log("[LORA: EMBED] Waiting for Main App to call LORA_INIT_WIDGET.");
   }
 
   window.addEventListener('message', function (event) {
