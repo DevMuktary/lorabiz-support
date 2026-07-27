@@ -3,7 +3,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useUser, UserButton } from '@clerk/nextjs';
 import { client, databases } from '@/lib/appwrite-client';
-import { Query, ID } from 'node-appwrite';
+// CRITICAL FIX: Use the Web SDK ('appwrite') instead of the Server SDK ('node-appwrite') on the frontend
+import { Query, ID } from 'appwrite'; 
 import { Send, Phone, Mail, MessageSquare, ChevronLeft, Bot, User, CheckCircle2, XCircle, Info } from 'lucide-react';
 
 // --- Types ---
@@ -221,7 +222,6 @@ export default function DashboardPage() {
             </div>
             <h1 className="font-bold text-lg tracking-tight">Active Queue</h1>
           </div>
-          {/* Fixed Clerk UserButton - removed deprecated afterSignOutUrl prop */}
           <UserButton />
         </header>
 
