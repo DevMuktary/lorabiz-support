@@ -5,7 +5,7 @@ import { Client, Databases } from 'node-appwrite';
 const client = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || '')
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '')
-  .setKey(process.env.APPWRITE_API_KEY || '');
+  .setKey(process.env.APPWRITE_SECRET_KEY || '');
 
 const databases = new Databases(client);
 const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'lorabiz_support';
