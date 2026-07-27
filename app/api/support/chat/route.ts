@@ -36,7 +36,6 @@ export async function POST(req: Request) {
         }, securePermissions);
         return NextResponse.json({ status: 'SUCCESS' });
       } catch (e: any) {
-        console.error(`[LORA: API ERROR] Failed to close ticket:`, e.message);
         return NextResponse.json({ error: e.message }, { status: 500 });
       }
     }
@@ -66,7 +65,6 @@ export async function POST(req: Request) {
         }
         return NextResponse.json({ status: 'NO_ACTIVE_TICKET', allTickets });
       } catch (e: any) {
-        console.error(`[LORA: API ERROR] INIT_SESSION failed:`, e);
         return NextResponse.json({ error: e.message }, { status: 500 });
       }
     }
@@ -77,6 +75,38 @@ export async function POST(req: Request) {
         const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
           Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt'), Query.limit(100),
         ]);
+
+        const hoursStatus = checkBusinessHours();
+
+        // FIX: ONLY RUN TIMEOUT APOLOGIES IF IT IS CURRENTLY BUSINESS HOURS
+        if (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline) {
+          const timePending = Date.now() - new Date(ticket.$updatedAt).getTime();
+          const is5MinPassed = timePending > 5 * 60 * 1000;
+          const is10MinPassed = timePending > 10 * 60 * 1000;
+
+          const msg5 = "We apologize for the delay. Our agents are taking a little longer than expected. Thank you for your patience!";
+          const msg10 = "We are currently experiencing high traffic, and no agents are available right now. Please don't worry—your conversation has been saved, and an agent will reply directly to your registered email shortly.";
+
+          const has5MinMsg = historyDocs.documents.some((m: any) => m.content === msg5);
+          const has10MinMsg = historyDocs.documents.some((m: any) => m.content === msg10);
+
+          let injectedMessage = null;
+
+          if (is10MinPassed && !has10MinMsg) {
+            injectedMessage = msg10;
+          } else if (is5MinPassed && !is10MinPassed && !has5MinMsg) {
+            injectedMessage = msg5;
+          }
+
+          if (injectedMessage) {
+            const sysMsg = await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+              ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
+              sourceChannel: 'IN_APP', content: injectedMessage,
+            }, securePermissions);
+            historyDocs.documents.push(sysMsg);
+          }
+        }
+
         return NextResponse.json({ status: 'SUCCESS', messages: historyDocs.documents, ticketStatus: ticket.status });
       } catch (e: any) {
         if (e.code === 404) return NextResponse.json({ status: 'NOT_FOUND', messages: [] });
@@ -113,10 +143,15 @@ export async function POST(req: Request) {
         sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
     }, securePermissions);
 
-    if (ticket.status === 'PENDING_AGENT' || ticket.status === 'IN_PROGRESS') {
+    const hoursStatus = checkBusinessHours();
+
+    // FIX: AI STAYS QUIET IF HUMAN IS TYPING (IN_PROGRESS) OR IF IT IS QUEUED *DURING* BUSINESS HOURS
+    if (ticket.status === 'IN_PROGRESS' || (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline)) {
       return NextResponse.json({ status: 'RECEIVED' });
     }
 
+    // IF WE REACH HERE: The ticket is either OPEN, or it's PENDING_AGENT *OUTSIDE* BUSINESS HOURS.
+    // The AI is allowed to process the message and continue the conversation!
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt'), Query.limit(50),
     ]);
@@ -125,23 +160,27 @@ export async function POST(req: Request) {
       senderType: doc.senderType, content: doc.content || '[Attachment]',
     }));
 
-    const aiResponse = await processTicketWithAI(ticketId, formattedHistory);
+    let aiResponse = await processTicketWithAI(ticketId, formattedHistory);
 
     if (aiResponse.includes('TRIGGER_HANDOVER')) {
-      const hoursStatus = checkBusinessHours();
-      const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
-      const summary = await summarizeChatForAgent(transcript);
-      const handoverMessage = hoursStatus.isOnline
-        ? 'I have added you to our support queue. A human agent will connect with you shortly.'
-        : hoursStatus.message;
+      if (ticket.status === 'PENDING_AGENT') {
+        // If the AI triggers handover AGAIN while already offline, it just reassures them.
+        aiResponse = "I've already noted your request for our team! They will assist you as soon as we open. I'm still here if you want to keep chatting!";
+      } else {
+        const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
+        const summary = await summarizeChatForAgent(transcript);
+        const handoverMessage = hoursStatus.isOnline
+          ? 'I have added you to our support queue. A human agent will connect with you shortly.'
+          : hoursStatus.message;
 
-      await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
-        status: 'PENDING_AGENT', aiSummary: summary,
-      });
-      await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-        ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System', sourceChannel: 'IN_APP', content: handoverMessage,
-      }, securePermissions);
-      return NextResponse.json({ status: 'HANDOVER_INITIATED', reply: handoverMessage });
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+          status: 'PENDING_AGENT', aiSummary: summary,
+        });
+        await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+          ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System', sourceChannel: 'IN_APP', content: handoverMessage,
+        }, securePermissions);
+        return NextResponse.json({ status: 'HANDOVER_INITIATED', reply: handoverMessage });
+      }
     }
 
     await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
@@ -150,7 +189,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ status: 'SUCCESS', reply: aiResponse });
   } catch (error: any) {
-    console.error(`[LORA: API CRITICAL ERROR]`, error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
