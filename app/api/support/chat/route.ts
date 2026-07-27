@@ -1,20 +1,22 @@
+// app/api/support/chat/route.ts
 import { NextResponse } from 'next/server';
-import { Client, Databases, Query, ID } from 'node-appwrite';
+import { Client, Databases, Query, ID, Permission, Role } from 'node-appwrite';
 import { processTicketWithAI } from '@/lib/ai';
 import { summarizeChatForAgent } from '@/lib/ai-summarizer';
 import { checkBusinessHours } from '@/lib/business-hours';
 
-// FIX: Standardized to use APPWRITE_SECRET_KEY
+// FIX: Standardized to use APPWRITE_SECRET_KEY for admin privileges to execute logic,
+// but applying strict DLS to the documents themselves.
 const client = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || '')
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '')
-  .setKey(process.env.APPWRITE_SECRET_KEY || process.env.APPWRITE_API_KEY || '');
+  .setKey(process.env.APPWRITE_SECRET_KEY || '');
 
 const databases = new Databases(client);
 
-const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
-const TICKETS_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
-const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
+const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
+const TICKETS_COLLECTION_ID = process.env.APPWRITE_TICKETS_COLLECTION_ID || process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
+const MESSAGES_COLLECTION_ID = process.env.APPWRITE_MESSAGES_COLLECTION_ID || process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
 const MAX_MESSAGE_LENGTH = 2000;
 
@@ -25,6 +27,10 @@ export async function POST(req: Request) {
 
     if (!ticketId || typeof ticketId !== 'string') {
       return NextResponse.json({ error: 'Invalid or missing ticketId' }, { status: 400 });
+    }
+
+    if (!senderId || typeof senderId !== 'string') {
+      return NextResponse.json({ error: 'Invalid or missing senderId (Anonymous session required)' }, { status: 400 });
     }
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
@@ -39,16 +45,29 @@ export async function POST(req: Request) {
     }
 
     const sanitizedMessage = message.trim();
+    
+    // Define strict Document-Level Security (DLS)
+    const securePermissions = [
+      Permission.read(Role.user(senderId)), // The public user
+      Permission.read(Role.team('agents')), // The support team
+      Permission.update(Role.team('agents'))
+    ];
 
     let ticket;
     try {
       ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
     } catch (e: any) {
       if (e.code === 404) {
-        ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
-          status: 'OPEN',
-          sourceChannel: 'IN_APP',
-        });
+        ticket = await databases.createDocument(
+          DATABASE_ID, 
+          TICKETS_COLLECTION_ID, 
+          ticketId, 
+          {
+            status: 'OPEN',
+            sourceChannel: 'IN_APP',
+          },
+          securePermissions
+        );
       } else {
         throw e; 
       }
@@ -61,14 +80,21 @@ export async function POST(req: Request) {
       );
     }
 
-    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-      ticketId,
-      senderType: 'CUSTOMER',
-      senderId: senderId || 'ANONYMOUS',
-      senderName: senderName || 'User',
-      sourceChannel: 'IN_APP',
-      content: sanitizedMessage,
-    });
+    // Save Customer Message
+    await databases.createDocument(
+      DATABASE_ID, 
+      MESSAGES_COLLECTION_ID, 
+      ID.unique(), 
+      {
+        ticketId,
+        senderType: 'CUSTOMER',
+        senderId: senderId,
+        senderName: senderName || 'Client',
+        sourceChannel: 'IN_APP',
+        content: sanitizedMessage,
+      },
+      securePermissions
+    );
 
     if (ticket.status === 'PENDING_AGENT' || ticket.status === 'IN_PROGRESS') {
       return NextResponse.json({
@@ -84,16 +110,17 @@ export async function POST(req: Request) {
       Query.limit(50),
     ]);
 
-    const formattedHistory = historyDocs.documents.map((doc: any) => ({
+    const formattedHistory = historyDocs.documents.map((doc) => ({
       senderType: doc.senderType,
       content: doc.content,
     }));
 
     const aiResponse = await processTicketWithAI(ticketId, formattedHistory);
 
+    // FIX: Unified Handover Logic
     if (aiResponse.includes('TRIGGER_HANDOVER')) {
       const hoursStatus = checkBusinessHours();
-      const transcript = formattedHistory.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
+      const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
       const summary = await summarizeChatForAgent(transcript);
 
       const handoverMessage = hoursStatus.isOnline
@@ -105,14 +132,20 @@ export async function POST(req: Request) {
         aiSummary: summary,
       });
 
-      await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-        ticketId,
-        senderType: 'SYSTEM',
-        senderId: 'LORA_SYSTEM',
-        senderName: 'System',
-        sourceChannel: 'IN_APP',
-        content: handoverMessage,
-      });
+      await databases.createDocument(
+        DATABASE_ID, 
+        MESSAGES_COLLECTION_ID, 
+        ID.unique(), 
+        {
+          ticketId,
+          senderType: 'SYSTEM',
+          senderId: 'LORA_SYSTEM',
+          senderName: 'System',
+          sourceChannel: 'IN_APP',
+          content: handoverMessage,
+        },
+        securePermissions
+      );
 
       return NextResponse.json({
         status: 'HANDOVER_INITIATED',
@@ -122,14 +155,21 @@ export async function POST(req: Request) {
       });
     }
 
-    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
-      ticketId,
-      senderType: 'ASSISTANT',
-      senderId: 'LORA_BOT',
-      senderName: 'Lora',
-      sourceChannel: 'IN_APP',
-      content: aiResponse,
-    });
+    // Normal AI Response
+    await databases.createDocument(
+      DATABASE_ID, 
+      MESSAGES_COLLECTION_ID, 
+      ID.unique(), 
+      {
+        ticketId,
+        senderType: 'ASSISTANT',
+        senderId: 'LORA_BOT',
+        senderName: 'Lora',
+        sourceChannel: 'IN_APP',
+        content: aiResponse,
+      },
+      securePermissions
+    );
 
     return NextResponse.json({
       status: 'SUCCESS',
