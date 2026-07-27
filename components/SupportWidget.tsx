@@ -39,7 +39,7 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // THE SAFARI FIX: Strict PostMessage Handshake with Parent Window
+  // FIX: Restore state instantly when pushed by parent window
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'LORA_RESTORE_STATE' && event.data.payload) {
@@ -47,19 +47,17 @@ export default function SupportWidget() {
         if (savedUserDetails) setUserDetails(prev => ({ ...prev, name: savedUserDetails.name || '', email: savedUserDetails.email || '' }));
         if (savedTicketId) {
           setActiveTicketId(savedTicketId);
-          setView('CHAT'); // FIX 2: Instantly jump back to the chat view on refresh
+          setView('CHAT'); 
         }
       }
     };
     
     window.addEventListener('message', handleMessage);
-    if (typeof window !== 'undefined' && window.parent) {
-      window.parent.postMessage('LORA_REQUEST_STATE', '*');
-    }
+    // Note: We no longer request state here; the parent pushes it onload
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  // Sync state back to parent window
+  // Sync state back to parent window (with strict guard)
   useEffect(() => {
     if (typeof window !== 'undefined' && window.parent && (userDetails.name || activeTicketId)) {
       window.parent.postMessage({
@@ -82,12 +80,12 @@ export default function SupportWidget() {
         const data = await res.json();
         if (data.messages) {
           setMessages(prev => {
-             // Keep only temp messages that are currently in flight
-             const optimisticMessages = prev.filter(m => m.$id.startsWith('temp_'));
-             return [...data.messages, ...optimisticMessages];
+             const serverIds = new Set(data.messages.map((m: any) => m.$id));
+             // Keep only customer messages that haven't hit the server yet
+             const inFlight = prev.filter(m => !serverIds.has(m.$id) && m.senderType === 'CUSTOMER');
+             return [...data.messages, ...inFlight];
           });
           
-          // Track ticket status for the Hub view
           if (data.ticketStatus) {
             setHistoryTickets([{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
           }
@@ -147,7 +145,6 @@ export default function SupportWidget() {
 
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
-
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticketId: newTicketId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email }),
@@ -162,12 +159,12 @@ export default function SupportWidget() {
     if ((!inputText.trim() && !selectedFile) || !activeTicketId) return;
 
     const currentText = inputText;
-    const tempId = `temp_${Date.now()}`;
+    // FIX: Generate the Appwrite ID on the client
+    const messageId = ID.unique(); 
     setInputText(''); 
     
-    // FIX 1: Add temp message instantly
     setMessages((prev) => [...prev, {
-      $id: tempId, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
+      $id: messageId, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
       content: currentText, attachmentUrl: selectedFile ? URL.createObjectURL(selectedFile) : undefined
     }]);
     scrollToBottom();
@@ -187,31 +184,14 @@ export default function SupportWidget() {
     }
 
     try {
-      // Send to backend
+      // FIX: Pass the client-generated messageId to the backend
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId: activeTicketId, message: currentText, senderName: userDetails.name, attachmentUrl: uploadedFileUrl }),
+        body: JSON.stringify({ ticketId: activeTicketId, messageId, message: currentText, senderName: userDetails.name, attachmentUrl: uploadedFileUrl }),
       });
-
-      // FIX 1: Remove THIS specific temp message because it has safely reached the DB
-      setMessages(prev => prev.filter(m => m.$id !== tempId));
-
-      // Force an immediate history fetch so the UI seamlessly swaps the temp message for the real DB message
-      const res = await fetch('/api/support/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'FETCH_HISTORY', ticketId: activeTicketId })
-      });
-      const data = await res.json();
-      if (data.messages) {
-        setMessages(prev => {
-          // Merge real DB messages with any other temp messages that might still be sending
-          const inFlightTemps = prev.filter(m => m.$id.startsWith('temp_'));
-          return [...data.messages, ...inFlightTemps];
-        });
-      }
     } catch (error) {
-      // Clean up the temp message if the API call completely fails
-      setMessages(prev => prev.filter(m => m.$id !== tempId));
+      // If network fails completely, remove the failed message
+      setMessages(prev => prev.filter(m => m.$id !== messageId));
     } finally {
       setIsTyping(false);
     }
@@ -269,7 +249,7 @@ export default function SupportWidget() {
                     <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                   </a>
                   <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                     <span className="text-[14px] font-bold text-gray-800">Email</span>
                   </a>
                 </div>
