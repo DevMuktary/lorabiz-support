@@ -96,7 +96,7 @@ export async function POST(req: Request) {
         // --- 2. TICKET MANAGEMENT ---
         const existingTickets = await databases.listDocuments(dbId, ticketsCol, [
           Query.equal('customerPhone', customerPhone),
-          Query.notEqual('status', 'RESOLVED'), 
+          Query.notEqual('status', 'CLOSED'), // Fixed to standard 'CLOSED' status
           Query.orderDesc('$createdAt'),
           Query.limit(1)
         ]);
@@ -113,6 +113,7 @@ export async function POST(req: Request) {
             status: currentStatus 
           });
         } else {
+          // THIS IS A BRAND NEW USER - TICKET CREATED
           isFirstContact = true;
           const newTicket = await databases.createDocument(dbId, ticketsCol, ID.unique(), {
             customerPhone: customerPhone,
@@ -126,7 +127,6 @@ export async function POST(req: Request) {
 
         // --- 3. SAVE CUSTOMER MESSAGE TO DATABASE ---
         if (isFlowSubmission && flowData) {
-           // Save the extracted flow details as a SYSTEM message so the AI can read the context
            await databases.createDocument(dbId, messagesCol, ID.unique(), {
              ticketId, senderType: 'SYSTEM', senderName: 'System',
              content: `[System: Customer Onboarded]\nName: ${flowData.customer_name}\nEmail: ${flowData.customer_email}\nTopic: ${flowData.service_topic}\nDescription: ${flowData.issue_description}`
@@ -141,6 +141,7 @@ export async function POST(req: Request) {
         // --- 4. THE AI BRAIN & BUTTON HANDLER ---
         const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
+        // Automatically trigger the Flow for brand new users, bypassing AI
         if (isFirstContact && !isFlowSubmission) {
             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
@@ -155,7 +156,7 @@ export async function POST(req: Request) {
                   action: {
                     name: "flow",
                     parameters: {
-                      flow_message_version: "3", flow_token: `onboarding_${ticketId}`, flow_id: "YOUR_FLOW_ID", 
+                      flow_message_version: "3", flow_token: `onboarding_${ticketId}`, flow_id: process.env.WHATSAPP_FLOW_ID || "YOUR_FLOW_ID", 
                       flow_cta: "Submit Details", flow_action: "navigate", flow_action_payload: { screen: "ONBOARDING_SCREEN" }
                     }
                   }
