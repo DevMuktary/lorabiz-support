@@ -1,7 +1,7 @@
 (function () {
   if (document.getElementById('lorabiz-support-widget-container')) return;
 
-  const SUPPORT_URL = 'https://support.lorabiz.com'; 
+  const SUPPORT_URL = 'https://support.lorabiz.com'; // Change to your actual domain in production
 
   const container = document.createElement('div');
   container.id = 'lorabiz-support-widget-container';
@@ -20,7 +20,6 @@
   container.style.setProperty('transform', 'translateZ(0)', 'important');
 
   const iframe = document.createElement('iframe');
-  iframe.src = `${SUPPORT_URL}/widget`;
   iframe.id = 'lorabiz-support-iframe';
   iframe.setAttribute('allowtransparency', 'true');
   
@@ -30,6 +29,14 @@
   iframe.style.setProperty('background-color', 'transparent', 'important');
   iframe.style.setProperty('pointer-events', 'auto', 'important'); 
   iframe.style.setProperty('color-scheme', 'normal', 'important');
+
+  // SAFARI FIX: Read state securely from the host website and pass it via URL
+  const savedState = localStorage.getItem('lora_saved_state');
+  let srcUrl = `${SUPPORT_URL}/widget`;
+  if (savedState) {
+    srcUrl += `?state=${encodeURIComponent(savedState)}`;
+  }
+  iframe.src = srcUrl;
 
   container.appendChild(iframe);
   document.body.appendChild(container);
@@ -60,14 +67,7 @@
       }
     }
 
-    // 2. Handle Safari Storage Sync
-    if (event.data === 'LORA_REQUEST_STATE') {
-      const savedState = localStorage.getItem('lora_saved_state');
-      iframe.contentWindow.postMessage({ 
-        type: 'LORA_RESTORE_STATE', 
-        payload: savedState ? JSON.parse(savedState) : null 
-      }, '*');
-    }
+    // 2. Handle Storage Saving from Widget
     if (event.data && event.data.type === 'LORA_SAVE_STATE') {
       localStorage.setItem('lora_saved_state', JSON.stringify(event.data.payload));
     }
