@@ -31,7 +31,6 @@ export default function SupportWidget() {
   const [historyTickets, setHistoryTickets] = useState<Ticket[]>([]);
   
   const [userDetails, setUserDetails] = useState({ name: '', email: '', topic: '', description: '' });
-  
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -42,13 +41,38 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // SAFARI FIX: Communicate with Parent Website Storage
   useEffect(() => {
-    const savedDetails = localStorage.getItem('lora_user_details');
-    if (savedDetails) {
-      const parsed = JSON.parse(savedDetails);
-      setUserDetails({ name: parsed.name || '', email: parsed.email || '', topic: '', description: '' });
-    }
+    if (typeof window !== 'undefined' && window.parent) {
+      window.parent.postMessage('LORA_REQUEST_STATE', '*');
 
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'LORA_RESTORE_STATE' && event.data.payload) {
+          const { savedUserDetails, savedTicketId } = event.data.payload;
+          if (savedUserDetails) setUserDetails(savedUserDetails);
+          if (savedTicketId) {
+            setActiveTicketId(savedTicketId);
+            setView('CHAT');
+          }
+        }
+      };
+      window.addEventListener('message', handleMessage);
+      return () => window.removeEventListener('message', handleMessage);
+    }
+  }, []);
+
+  // Sync state to parent whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.parent && (userDetails.name || activeTicketId)) {
+      window.parent.postMessage({
+        type: 'LORA_SAVE_STATE',
+        payload: { savedUserDetails: userDetails, savedTicketId: activeTicketId }
+      }, '*');
+    }
+  }, [userDetails, activeTicketId]);
+
+  // Appwrite Anonymous Session
+  useEffect(() => {
     const initAnonSession = async () => {
       try {
         const currentUser = await account.get();
@@ -61,6 +85,7 @@ export default function SupportWidget() {
     initAnonSession();
   }, []);
 
+  // Fetch Hub History
   useEffect(() => {
     if (!anonUserId || !isOpen || view !== 'HUB') return;
     databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
@@ -69,6 +94,7 @@ export default function SupportWidget() {
       .catch(console.error);
   }, [anonUserId, isOpen, view]);
 
+  // Handle Realtime Messages
   useEffect(() => {
     if (view !== 'CHAT' || !activeTicketId) return;
     
@@ -133,8 +159,6 @@ export default function SupportWidget() {
     e.preventDefault();
     if (!userDetails.name || !userDetails.email || !userDetails.topic || !anonUserId) return;
     
-    localStorage.setItem('lora_user_details', JSON.stringify({ name: userDetails.name, email: userDetails.email }));
-    
     const newTicketId = `TICKET_${Date.now()}`;
     setActiveTicketId(newTicketId);
     setMessages([]);
@@ -184,7 +208,7 @@ export default function SupportWidget() {
 
     const currentText = inputText;
     setInputText(''); 
-    
+
     try {
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -224,9 +248,9 @@ export default function SupportWidget() {
           {view === 'HUB' && (
              <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
               <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border-2 border-[#8B2D75]">
-                   {/* Avatar in the Hub */}
-                   <img src="/support.png" alt="Agent" className="w-[85%] h-[85%] object-contain" />
+                {/* Fixed Agent Avatar styling (object-contain, no tight clipping) */}
+                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border border-gray-200 shadow-sm p-1">
+                   <img src="/support.png" alt="Agent" className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi there!</h2>
@@ -239,7 +263,7 @@ export default function SupportWidget() {
                   <span className="font-bold text-[16px]">Send us a message</span>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                 </button>
-
+                
                 <div className="flex gap-3">
                   <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
                     <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
@@ -286,7 +310,6 @@ export default function SupportWidget() {
                   </div>
                 </div>
               </div>
-
             </div>
           )}
 
@@ -339,15 +362,13 @@ export default function SupportWidget() {
                     const isSystem = msg.senderType === 'SYSTEM';
 
                     if (isSystem) {
-                      // We hide the raw backend onboarding data from the user entirely
-                      if (msg.content.includes('[System: Customer Onboarded]')) {
-                        return null; 
-                      }
-
+                      // Filter out the ugly onboarding payload from being visible
+                      if (msg.content.includes('[System: Customer Onboarded]')) return null;
+                      
                       return (
                         <div key={msg.$id} className="text-center my-3">
-                          <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block max-w-[90%] whitespace-pre-wrap">
-                            {msg.content}
+                          <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">
+                             {msg.content}
                           </span>
                         </div>
                       );
@@ -376,21 +397,22 @@ export default function SupportWidget() {
 
                {/* Input Area */}
                <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe">
-                 {/* Re-written File Preview - No absolute overlaps */}
                  {selectedFile && (
-                   <div className="mb-3 flex items-center bg-gray-100 border border-gray-200 rounded-lg p-3 text-[13px] font-medium text-gray-700 w-full shadow-sm">
-                      <svg className="w-5 h-5 text-[#8B2D75] mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                   <div className="mb-3 relative flex items-center bg-gray-100 rounded-lg p-3 pr-10 text-[13px] font-medium text-gray-700 w-full shadow-sm">
+                      <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                       <span className="truncate flex-1">{selectedFile.name}</span>
-                      <button onClick={() => setSelectedFile(null)} className="shrink-0 ml-3 bg-red-100 text-red-600 rounded-full p-1.5 hover:bg-red-200 transition-colors">
+                      <button onClick={() => setSelectedFile(null)} className="absolute right-3 bg-red-100 text-red-600 rounded-full p-1.5 hover:bg-red-200 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                    </div>
                  )}
                  <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
                     <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
+                    
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-[#8B2D75] transition-colors rounded-xl hover:bg-gray-50">
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                     </button>
+                    
                     <input 
                        type="text" 
                        value={inputText} 
@@ -399,6 +421,7 @@ export default function SupportWidget() {
                        placeholder="Message..." 
                        className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000]" 
                     />
+                    
                     <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95">
                       {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
                     </button>
@@ -409,23 +432,14 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* Main Launcher Button - Re-styled for the transparent PNG */}
-      <div className="absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto">
+      {/* FIXED: Hides completely when widget is open so it doesn't fight the UI */}
+      <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
-          onClick={() => toggleWidget(!isOpen)}
-          className={`w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 ${isOpen ? 'bg-black border-transparent' : 'bg-white border-[#8B2D75]'}`}
+          onClick={() => toggleWidget(true)}
+          className="w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 bg-white border-[#8B2D75] p-1.5 overflow-hidden"
         >
-          {isOpen ? (
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          ) : (
-            <img 
-               src="/support.png" 
-               alt="Support Agent" 
-               className="w-[80%] h-[80%] object-contain" 
-            />
-          )}
+          {/* Custom Support Agent Image - object-contain ensures it is never cut off */}
+          <img src="/support.png" alt="Support" className="w-full h-full object-contain" />
         </button>
       </div>
     </div>
