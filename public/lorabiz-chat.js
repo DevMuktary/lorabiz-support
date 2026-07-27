@@ -31,6 +31,17 @@
   iframe.style.setProperty('pointer-events', 'auto', 'important'); 
   iframe.style.setProperty('color-scheme', 'normal', 'important');
 
+  // FIX: Push state immediately when iframe loads
+  iframe.onload = function() {
+    const savedState = localStorage.getItem('lorabiz_widget_state');
+    if (savedState) {
+      iframe.contentWindow.postMessage({ 
+        type: 'LORA_RESTORE_STATE', 
+        payload: JSON.parse(savedState) 
+      }, '*');
+    }
+  };
+
   container.appendChild(iframe);
   document.body.appendChild(container);
 
@@ -59,16 +70,8 @@
         container.style.setProperty('right', '24px', 'important');
       }
     }
-
-    // THE DEFINITIVE SAFARI SYNC LOGIC
-    if (event.data === 'LORA_REQUEST_STATE') {
-      const savedState = localStorage.getItem('lorabiz_widget_state');
-      iframe.contentWindow.postMessage({ 
-        type: 'LORA_RESTORE_STATE', 
-        payload: savedState ? JSON.parse(savedState) : null 
-      }, '*');
-    }
     
+    // Listen for state saves from the iframe
     if (event.data && event.data.type === 'LORA_SAVE_STATE') {
       localStorage.setItem('lorabiz_widget_state', JSON.stringify(event.data.payload));
     }
