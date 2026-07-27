@@ -15,28 +15,56 @@ const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_sup
 const TICKETS_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
 const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
+const securePermissions = [
+  Permission.read(Role.team('agents')),
+  Permission.update(Role.team('agents')),
+  Permission.delete(Role.team('agents'))
+];
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { ticketId, message, senderName, customerEmail, attachmentUrl, action, messageId, userId } = body;
 
-    // NEW: API-Based Session Initialization
+    // THE LIFECYCLE FIX: Allow users to end their own chats
+    if (action === 'CLOSE_TICKET') {
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, { status: 'CLOSED' });
+        await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+          ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
+          sourceChannel: 'IN_APP', content: 'Conversation ended by the user.',
+        }, securePermissions);
+        return NextResponse.json({ status: 'SUCCESS' });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
     if (action === 'INIT_SESSION') {
       if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
       try {
-        // Find the most recent ticket for this user
-        const activeTickets = await databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
+        // THE CROSS-DEVICE FIX: Fetch user tickets and sort in JS to avoid Appwrite Index crashes
+        const userTickets = await databases.listDocuments(DATABASE_ID, TICKETS_COLLECTION_ID, [
           Query.equal('userId', userId),
-          Query.orderDesc('$createdAt'),
-          Query.limit(1)
+          Query.limit(50)
         ]);
 
-        if (activeTickets.documents.length > 0 && activeTickets.documents[0].status !== 'CLOSED') {
-          const activeTicket = activeTickets.documents[0];
-          const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
-            Query.equal('ticketId', activeTicket.$id), Query.orderAsc('$createdAt'), Query.limit(100),
-          ]);
-          return NextResponse.json({ status: 'SUCCESS', ticketId: activeTicket.$id, messages: historyDocs.documents, ticketStatus: activeTicket.status });
+        if (userTickets.documents.length > 0) {
+          // Sort manually by newest first
+          const sortedTickets = userTickets.documents.sort((a, b) => 
+            new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime()
+          );
+          
+          // Find the most recent active ticket
+          const activeTicket = sortedTickets.find(t => t.status !== 'CLOSED');
+
+          if (activeTicket) {
+            const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
+              Query.equal('ticketId', activeTicket.$id), Query.orderAsc('$createdAt'), Query.limit(100),
+            ]);
+            return NextResponse.json({ status: 'SUCCESS', ticketId: activeTicket.$id, messages: historyDocs.documents, ticketStatus: activeTicket.status });
+          }
         }
         return NextResponse.json({ status: 'NO_ACTIVE_TICKET' });
       } catch (e: any) {
@@ -63,11 +91,6 @@ export async function POST(req: Request) {
     }
 
     const sanitizedMessage = message.trim();
-    const securePermissions = [
-      Permission.read(Role.team('agents')),
-      Permission.update(Role.team('agents')),
-      Permission.delete(Role.team('agents'))
-    ];
 
     let ticket;
     try {
@@ -83,7 +106,7 @@ export async function POST(req: Request) {
             sourceChannel: 'IN_APP', 
             title: generatedTitle, 
             customerEmail: customerEmail || '',
-            userId: userId || null // NEW: Save the User ID to the database
+            userId: userId || null 
         }, securePermissions);
       } else {
         throw e; 
