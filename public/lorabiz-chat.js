@@ -3,11 +3,6 @@
 
   const SUPPORT_URL = 'https://support.lorabiz.com'; 
 
-  // SAFARI FIX: Read state natively from the parent website BEFORE creating the iframe
-  let savedState = '{}';
-  try { savedState = localStorage.getItem('lora_saved_state') || '{}'; } catch(e) {}
-  const encodedState = encodeURIComponent(savedState);
-
   const container = document.createElement('div');
   container.id = 'lorabiz-support-widget-container';
   
@@ -25,8 +20,7 @@
   container.style.setProperty('transform', 'translateZ(0)', 'important');
 
   const iframe = document.createElement('iframe');
-  // Pass the state directly in the URL to bypass Safari tracking blockers
-  iframe.src = `${SUPPORT_URL}/widget?state=${encodedState}`;
+  iframe.src = `${SUPPORT_URL}/widget`;
   iframe.id = 'lorabiz-support-iframe';
   iframe.setAttribute('allowtransparency', 'true');
   
@@ -49,6 +43,7 @@
       container.style.setProperty('top', 'auto', 'important');
       container.style.setProperty('left', 'auto', 'important');
     }
+    
     if (event.data === 'LORA_WIDGET_OPENED') {
       if (window.innerWidth <= 640) {
         container.style.setProperty('width', '100vw', 'important');
@@ -64,8 +59,18 @@
         container.style.setProperty('right', '24px', 'important');
       }
     }
+
+    // THE DEFINITIVE SAFARI SYNC LOGIC
+    if (event.data === 'LORA_REQUEST_STATE') {
+      const savedState = localStorage.getItem('lorabiz_widget_state');
+      iframe.contentWindow.postMessage({ 
+        type: 'LORA_RESTORE_STATE', 
+        payload: savedState ? JSON.parse(savedState) : null 
+      }, '*');
+    }
+    
     if (event.data && event.data.type === 'LORA_SAVE_STATE') {
-      try { localStorage.setItem('lora_saved_state', JSON.stringify(event.data.payload)); } catch(e) {}
+      localStorage.setItem('lorabiz_widget_state', JSON.stringify(event.data.payload));
     }
   });
 })();
