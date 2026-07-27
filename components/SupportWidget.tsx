@@ -21,6 +21,15 @@ interface Message {
   attachmentUrl?: string;
 }
 
+// Custom Dialog Interface
+interface CustomDialog {
+  isOpen: boolean;
+  type: 'alert' | 'confirm';
+  title: string;
+  message: string;
+  onConfirm?: () => void;
+}
+
 export default function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<'HUB' | 'ONBOARDING' | 'CHAT'>('HUB');
@@ -38,6 +47,9 @@ export default function SupportWidget() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  
+  // Custom Dialog State
+  const [dialog, setDialog] = useState<CustomDialog | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -58,23 +70,18 @@ export default function SupportWidget() {
         }));
 
         try {
-          console.log(`[LORA: WIDGET] Firing API request to /api/support/chat for INIT_SESSION...`);
           const res = await fetch('/api/support/chat', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'INIT_SESSION', userId: urlUserId })
           });
           const data = await res.json();
-          console.log(`[LORA: WIDGET] Received API Response:`, data);
           
           if (data.status === 'SUCCESS' || data.status === 'NO_ACTIVE_TICKET') {
             if (data.allTickets) setHistoryTickets(data.allTickets);
             if (data.ticketId) {
-              console.log(`[LORA: WIDGET] Setting Active Ticket: ${data.ticketId}`);
               setActiveTicketId(data.ticketId);
               setMessages(data.messages || []);
             }
-          } else {
-            console.error(`[LORA: WIDGET ERROR] API returned unexpected status:`, data);
           }
         } catch (err) {
           console.error(`[LORA: WIDGET ERROR] Failed to fetch INIT_SESSION:`, err);
@@ -83,7 +90,6 @@ export default function SupportWidget() {
         console.log("[LORA: WIDGET] No User ID found in URL. Operating in anonymous mode.");
       }
       setIsInitializing(false);
-      console.log("[LORA: WIDGET] Initialization complete. Removing loading screen.");
     };
 
     initFromUrl();
@@ -107,25 +113,27 @@ export default function SupportWidget() {
           });
           
           if (data.ticketStatus) {
+            // FIX: Only trigger alert if ticket WAS open and IS NOW closed while actively chatting
+            if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
+               const activeTicket = historyTickets.find(t => t.$id === activeTicketId);
+               if (activeTicket && activeTicket.status !== 'CLOSED') {
+                 setDialog({
+                   isOpen: true, type: 'alert', title: 'Chat Closed', 
+                   message: 'This conversation has been securely closed by our support team.'
+                 });
+                 setView('HUB');
+                 setActiveTicketId(null);
+               }
+            }
+
             setHistoryTickets(prev => {
               const exists = prev.find(t => t.$id === activeTicketId);
               if (exists) return prev.map(t => t.$id === activeTicketId ? { ...t, status: data.ticketStatus } : t);
               return [{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }, ...prev];
             });
-            
-            if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
-               const activeTicketIndex = historyTickets.findIndex(t => t.$id === activeTicketId);
-               if (activeTicketIndex > -1 && historyTickets[activeTicketIndex].status !== 'CLOSED') {
-                 alert("This conversation has been closed by the support team.");
-                 setView('HUB');
-                 setActiveTicketId(null);
-               }
-            }
           }
         }
-      } catch (err) {
-        console.error(`[LORA: WIDGET ERROR] Polling fetchChatHistory failed:`, err);
-      }
+      } catch (err) {}
     };
 
     if (view === 'CHAT') {
@@ -138,11 +146,11 @@ export default function SupportWidget() {
     }
   }, [activeTicketId, view, historyTickets]);
 
+  // FIX: Only scroll to bottom when a NEW message arrives or typing status changes, not on every polling refresh
   const scrollToBottom = () => {
     setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, 150);
   };
-
-  useEffect(() => { scrollToBottom(); }, [messages, isTyping, view]);
+  useEffect(() => { scrollToBottom(); }, [messages.length, isTyping, view]);
 
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
@@ -169,27 +177,38 @@ export default function SupportWidget() {
     setView('CHAT');
   };
 
-  const handleEndChat = async () => {
+  const handleEndChat = () => {
     if (!activeTicketId) return;
-    const confirmEnd = window.confirm("Are you sure you want to end this conversation? It will be permanently closed.");
-    if (!confirmEnd) return;
+    
+    // Custom beautiful confirm dialog
+    setDialog({
+      isOpen: true,
+      type: 'confirm',
+      title: 'End Conversation',
+      message: 'Are you sure you want to end this chat? It will be permanently closed.',
+      onConfirm: async () => {
+        setDialog(null);
+        setView('HUB');
+        setHistoryTickets(prev => prev.map(t => t.$id === activeTicketId ? { ...t, status: 'CLOSED' } : t));
+        const closingTicketId = activeTicketId;
+        setActiveTicketId(null);
 
-    setView('HUB');
-    setHistoryTickets(prev => prev.map(t => t.$id === activeTicketId ? { ...t, status: 'CLOSED' } : t));
-    const closingTicketId = activeTicketId;
-    setActiveTicketId(null);
-
-    try {
-      await fetch('/api/support/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'CLOSE_TICKET', ticketId: closingTicketId })
-      });
-    } catch (err) {}
+        try {
+          await fetch('/api/support/chat', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'CLOSE_TICKET', ticketId: closingTicketId })
+          });
+        } catch (err) {}
+      }
+    });
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      if (e.target.files[0].size > 5 * 1024 * 1024) { alert("File must be less than 5MB"); return; }
+      if (e.target.files[0].size > 5 * 1024 * 1024) { 
+        setDialog({ isOpen: true, type: 'alert', title: 'File Too Large', message: 'Attachment must be less than 5MB.' });
+        return; 
+      }
       setSelectedFile(e.target.files[0]);
     }
   };
@@ -198,7 +217,6 @@ export default function SupportWidget() {
     e.preventDefault();
     if (!userDetails.name || !userDetails.email || !userDetails.topic) return;
     
-    console.log("[LORA: WIDGET] Creating new ticket for User:", authUserId);
     const newTicketId = `TICKET_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
     setActiveTicketId(newTicketId);
     setMessages([]);
@@ -215,9 +233,7 @@ export default function SupportWidget() {
         }),
       });
       setHistoryTickets(prev => [{ $id: newTicketId, status: 'OPEN', $createdAt: new Date().toISOString(), title: userDetails.topic }, ...prev]);
-    } catch (error) {
-      console.error("[LORA: WIDGET ERROR] Failed to create ticket:", error);
-    } finally {
+    } catch (error) {} finally {
       setIsTyping(false);
     }
   };
@@ -234,7 +250,6 @@ export default function SupportWidget() {
       $id: messageId, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
       content: currentText, attachmentUrl: selectedFile ? URL.createObjectURL(selectedFile) : undefined
     }]);
-    scrollToBottom();
     
     setIsTyping(true);
     let uploadedFileUrl = '';
@@ -245,7 +260,7 @@ export default function SupportWidget() {
         const upload = await storage.createFile(BUCKET_ID, ID.unique(), selectedFile, [Permission.read(Role.team('agents'))]);
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
-        alert("File upload failed.");
+        setDialog({ isOpen: true, type: 'alert', title: 'Upload Failed', message: 'There was an error attaching your file. Please try again.' });
       }
       setIsUploading(false); setSelectedFile(null);
     }
@@ -270,16 +285,48 @@ export default function SupportWidget() {
   return (
     <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none">
       {isOpen && (
-        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5">
+        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5 relative">
           
-          <div className="bg-[#000000] px-5 py-4 flex justify-between items-center text-white shrink-0">
+          {/* CUSTOM DIALOG OVERLAY */}
+          {dialog?.isOpen && (
+            <div className="absolute inset-0 z-[100] bg-black/40 flex items-center justify-center p-4 backdrop-blur-[2px] animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[320px] p-6 animate-in zoom-in-95 duration-200">
+                <h3 className="text-[17px] font-extrabold text-gray-900 mb-2">{dialog.title}</h3>
+                <p className="text-[14px] text-gray-600 mb-6 leading-relaxed">{dialog.message}</p>
+                <div className="flex justify-end gap-3">
+                  {dialog.type === 'confirm' && (
+                    <button 
+                      onClick={() => setDialog(null)}
+                      className="px-4 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => {
+                      if (dialog.type === 'confirm' && dialog.onConfirm) {
+                        dialog.onConfirm();
+                      } else {
+                        setDialog(null);
+                      }
+                    }}
+                    className="px-5 py-2.5 text-[13px] font-bold text-white bg-[#000000] hover:bg-gray-800 rounded-xl transition-transform active:scale-95"
+                  >
+                    {dialog.type === 'confirm' ? 'Yes, End Chat' : 'Okay'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-[#000000] px-5 py-4 flex justify-between items-center text-white shrink-0 z-10">
             <div className="flex items-center space-x-3">
               {(view === 'CHAT' || view === 'ONBOARDING') && (
                 <button onClick={() => { setView('HUB'); setActiveTicketId(null); }} className="hover:bg-white/10 p-1 rounded-md transition-colors">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
               )}
-              <div className={`w-2.5 h-2.5 rounded-full bg-[#8B2D75] ${!isViewingClosedTicket ? 'animate-pulse' : ''}`}></div>
+              <div className={`w-2.5 h-2.5 rounded-full bg-[#8B2D75] ${!isViewingClosedTicket && !isInitializing ? 'animate-pulse' : ''}`}></div>
               <h3 className="font-bold text-[16px] tracking-wide text-white">LoraBiz Support</h3>
             </div>
             
@@ -343,7 +390,8 @@ export default function SupportWidget() {
                         <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                       </a>
                       <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg>
+                        {/* FIX: Cleaned up the broken email SVG path */}
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                         <span className="text-[14px] font-bold text-gray-800">Email</span>
                       </a>
                     </div>
@@ -434,7 +482,7 @@ export default function SupportWidget() {
 
               {view === 'CHAT' && (
                  <div className="flex-1 flex flex-col min-h-0 bg-[#F8FAFC]">
-                   <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 relative">
+                   <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 relative custom-scrollbar">
                       {messages.map((msg) => {
                         const isUser = msg.senderType === 'CUSTOMER';
                         const isSystem = msg.senderType === 'SYSTEM';
@@ -476,7 +524,7 @@ export default function SupportWidget() {
                        <span className="text-[14px] text-gray-500 font-medium">This conversation is closed.</span>
                      </div>
                    ) : (
-                     <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe">
+                     <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe z-10">
                        {selectedFile && (
                          <div className="mb-3 relative flex items-center bg-gray-100 rounded-lg p-3 pr-10 text-[13px] font-medium text-gray-700 w-full shadow-sm">
                             <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
