@@ -36,7 +36,6 @@ export default function SupportWidget() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   
-  // FIXED: Restored the missing fileInputRef declaration
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -48,6 +47,7 @@ export default function SupportWidget() {
         if (savedUserDetails) setUserDetails(prev => ({ ...prev, name: savedUserDetails.name || '', email: savedUserDetails.email || '' }));
         if (savedTicketId) {
           setActiveTicketId(savedTicketId);
+          setView('CHAT'); // FIX 2: Instantly jump back to the chat view on refresh
         }
       }
     };
@@ -82,8 +82,8 @@ export default function SupportWidget() {
         const data = await res.json();
         if (data.messages) {
           setMessages(prev => {
-             const serverIds = new Set(data.messages.map((m: any) => m.$id));
-             const optimisticMessages = prev.filter(m => m.$id.startsWith('temp_') && !serverIds.has(m.$id));
+             // Keep only temp messages that are currently in flight
+             const optimisticMessages = prev.filter(m => m.$id.startsWith('temp_'));
              return [...data.messages, ...optimisticMessages];
           });
           
@@ -165,6 +165,7 @@ export default function SupportWidget() {
     const tempId = `temp_${Date.now()}`;
     setInputText(''); 
     
+    // FIX 1: Add temp message instantly
     setMessages((prev) => [...prev, {
       $id: tempId, senderType: 'CUSTOMER', senderName: userDetails.name || 'You',
       content: currentText, attachmentUrl: selectedFile ? URL.createObjectURL(selectedFile) : undefined
@@ -186,11 +187,32 @@ export default function SupportWidget() {
     }
 
     try {
+      // Send to backend
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticketId: activeTicketId, message: currentText, senderName: userDetails.name, attachmentUrl: uploadedFileUrl }),
       });
-    } catch (error) {} finally {
+
+      // FIX 1: Remove THIS specific temp message because it has safely reached the DB
+      setMessages(prev => prev.filter(m => m.$id !== tempId));
+
+      // Force an immediate history fetch so the UI seamlessly swaps the temp message for the real DB message
+      const res = await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'FETCH_HISTORY', ticketId: activeTicketId })
+      });
+      const data = await res.json();
+      if (data.messages) {
+        setMessages(prev => {
+          // Merge real DB messages with any other temp messages that might still be sending
+          const inFlightTemps = prev.filter(m => m.$id.startsWith('temp_'));
+          return [...data.messages, ...inFlightTemps];
+        });
+      }
+    } catch (error) {
+      // Clean up the temp message if the API call completely fails
+      setMessages(prev => prev.filter(m => m.$id !== tempId));
+    } finally {
       setIsTyping(false);
     }
   };
