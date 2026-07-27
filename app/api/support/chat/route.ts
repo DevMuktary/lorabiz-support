@@ -18,7 +18,8 @@ const MESSAGES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECT
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { ticketId, message, senderName, customerEmail, attachmentUrl, action } = body;
+    // FIX: Extract messageId passed from frontend
+    const { ticketId, message, senderName, customerEmail, attachmentUrl, action, messageId } = body;
 
     if (action === 'FETCH_HISTORY') {
       if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
@@ -64,11 +65,13 @@ export async function POST(req: Request) {
 
     if (ticket.status === 'CLOSED') return NextResponse.json({ error: 'Ticket closed.' }, { status: 400 });
 
-    // THE FIX: Save Onboarding payload strictly as SYSTEM so it is hidden in the UI
     const isSystemOnboard = sanitizedMessage.includes('[System: Customer Onboarded]');
     const actualSenderType = isSystemOnboard ? 'SYSTEM' : 'CUSTOMER';
 
-    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+    // FIX: Use the client-provided messageId (or fallback to unique if missing)
+    const finalMessageId = messageId || ID.unique();
+
+    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, finalMessageId, {
         ticketId, senderType: actualSenderType, senderId: ticketId, senderName: senderName || 'Client',
         sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
     }, securePermissions);
