@@ -21,7 +21,6 @@ interface Message {
   attachmentUrl?: string;
 }
 
-// Custom Dialog Interface
 interface CustomDialog {
   isOpen: boolean;
   type: 'alert' | 'confirm';
@@ -47,8 +46,8 @@ export default function SupportWidget() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isChatLoading, setIsChatLoading] = useState(false);
   
-  // Custom Dialog State
   const [dialog, setDialog] = useState<CustomDialog | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,12 +55,10 @@ export default function SupportWidget() {
 
   useEffect(() => {
     const initFromUrl = async () => {
-      console.log("[LORA: WIDGET] Booting up. Reading URL Parameters...");
       const params = new URLSearchParams(window.location.search);
       const urlUserId = params.get('userId');
       
       if (urlUserId) {
-        console.log(`[LORA: WIDGET] Extracted User ID from URL: ${urlUserId}`);
         setAuthUserId(urlUserId);
         setUserDetails(prev => ({ 
           ...prev, 
@@ -83,11 +80,7 @@ export default function SupportWidget() {
               setMessages(data.messages || []);
             }
           }
-        } catch (err) {
-          console.error(`[LORA: WIDGET ERROR] Failed to fetch INIT_SESSION:`, err);
-        }
-      } else {
-        console.log("[LORA: WIDGET] No User ID found in URL. Operating in anonymous mode.");
+        } catch (err) {}
       }
       setIsInitializing(false);
     };
@@ -112,8 +105,9 @@ export default function SupportWidget() {
              return [...data.messages, ...inFlight];
           });
           
+          setIsChatLoading(false); // Clear the loading skeleton once data arrives
+          
           if (data.ticketStatus) {
-            // FIX: Only trigger alert if ticket WAS open and IS NOW closed while actively chatting
             if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
                const activeTicket = historyTickets.find(t => t.$id === activeTicketId);
                if (activeTicket && activeTicket.status !== 'CLOSED') {
@@ -146,7 +140,6 @@ export default function SupportWidget() {
     }
   }, [activeTicketId, view, historyTickets]);
 
-  // FIX: Only scroll to bottom when a NEW message arrives or typing status changes, not on every polling refresh
   const scrollToBottom = () => {
     setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, 150);
   };
@@ -164,6 +157,8 @@ export default function SupportWidget() {
 
   const handleStartChat = () => {
     if (openTicket) {
+      setMessages([]); 
+      setIsChatLoading(true);
       setActiveTicketId(openTicket.$id);
       setView('CHAT');
     } else {
@@ -173,6 +168,8 @@ export default function SupportWidget() {
   };
 
   const handleOpenHistory = (ticketId: string) => {
+    setMessages([]); 
+    setIsChatLoading(true);
     setActiveTicketId(ticketId);
     setView('CHAT');
   };
@@ -180,7 +177,6 @@ export default function SupportWidget() {
   const handleEndChat = () => {
     if (!activeTicketId) return;
     
-    // Custom beautiful confirm dialog
     setDialog({
       isOpen: true,
       type: 'confirm',
@@ -279,15 +275,15 @@ export default function SupportWidget() {
     }
   };
 
-  const closedTickets = historyTickets.filter(t => t.status === 'CLOSED');
+  // Restrict history to exactly the last 3 closed tickets
+  const closedTickets = historyTickets.filter(t => t.status === 'CLOSED').slice(0, 3);
   const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
 
   return (
     <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none">
       {isOpen && (
-        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5 relative">
+        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5 relative overscroll-contain">
           
-          {/* CUSTOM DIALOG OVERLAY */}
           {dialog?.isOpen && (
             <div className="absolute inset-0 z-[100] bg-black/40 flex items-center justify-center p-4 backdrop-blur-[2px] animate-in fade-in duration-200">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[320px] p-6 animate-in zoom-in-95 duration-200">
@@ -331,7 +327,7 @@ export default function SupportWidget() {
             </div>
             
             <div className="flex items-center space-x-2">
-              {view === 'CHAT' && !isViewingClosedTicket && (
+              {view === 'CHAT' && !isViewingClosedTicket && !isChatLoading && (
                 <button 
                   onClick={handleEndChat} 
                   className="text-[12px] font-bold bg-[#333333] hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm"
@@ -360,7 +356,7 @@ export default function SupportWidget() {
           ) : (
             <>
               {view === 'HUB' && (
-                <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
+                <div className="flex-1 overflow-y-auto overscroll-contain bg-[#F8FAFC] p-5 flex flex-col space-y-6">
                   <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                     <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border border-gray-200 shadow-sm p-1">
                       <img src="/support.png" alt="Agent" className="w-full h-full object-contain" />
@@ -385,12 +381,18 @@ export default function SupportWidget() {
                     )}
                     
                     <div className="flex gap-3">
-                      <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                        <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+                      <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto cursor-pointer relative z-10">
+                        {/* Official WhatsApp Logo */}
+                        <svg className="w-5 h-5 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12.031 0c-6.627 0-12.002 5.373-12.002 11.996 0 2.115.549 4.184 1.593 6.002l-1.622 5.952 6.096-1.597c1.764.957 3.754 1.464 5.935 1.464 6.627 0 12.001-5.372 12.001-11.996 0-6.623-5.374-11.996-12.001-11.996zm6.386 17.202c-.267.755-1.545 1.458-2.128 1.528-.544.066-1.25.138-3.593-.83-2.827-1.171-4.636-4.048-4.773-4.225-.138-.178-1.139-1.517-1.139-2.894 0-1.378.716-2.053.966-2.319.251-.267.545-.334.726-.334.18 0 .361 0 .513.009.157.009.378-.059.589.445.213.504.726 1.766.793 1.899.066.134.11.293.02.471-.09.178-.138.289-.276.446-.138.156-.29.356-.414.489-.138.156-.289.324-.124.624.164.298.726 1.218 1.554 2.046 1.066 1.064 1.975 1.385 2.274 1.519.298.134.471.111.647-.067.178-.178.761-.885.966-1.189.205-.304.41-.253.682-.156.273.098 1.722.815 2.019.964.298.148.497.223.57.347.074.124.074.726-.193 1.48z"/>
+                        </svg>
                         <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                       </a>
-                      <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                        {/* FIX: Cleaned up the broken email SVG path */}
+                      <a 
+                        href="mailto:support@lorabiz.com" 
+                        onClick={(e) => { e.preventDefault(); window.location.href = 'mailto:support@lorabiz.com'; }}
+                        className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto cursor-pointer relative z-10"
+                      >
                         <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                         <span className="text-[14px] font-bold text-gray-800">Email</span>
                       </a>
@@ -400,7 +402,7 @@ export default function SupportWidget() {
                   {closedTickets.length > 0 && (
                     <div className="mt-2 border-t border-gray-200 pt-5">
                       <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Previous Conversations</h3>
-                      <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-[160px] overflow-y-auto overscroll-contain pr-1">
                         {closedTickets.map(ticket => (
                           <button 
                             key={ticket.$id}
@@ -432,7 +434,7 @@ export default function SupportWidget() {
               )}
 
               {view === 'ONBOARDING' && (
-                <div className="flex-1 overflow-y-auto bg-white p-6 flex flex-col justify-start">
+                <div className="flex-1 overflow-y-auto overscroll-contain bg-white p-6 flex flex-col justify-start">
                   <div className="text-center mb-6 mt-4">
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Let's get started</h2>
                     <p className="text-gray-500 text-sm">Please select a topic so we can assist you better.</p>
@@ -482,42 +484,58 @@ export default function SupportWidget() {
 
               {view === 'CHAT' && (
                  <div className="flex-1 flex flex-col min-h-0 bg-[#F8FAFC]">
-                   <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 relative custom-scrollbar">
-                      {messages.map((msg) => {
-                        const isUser = msg.senderType === 'CUSTOMER';
-                        const isSystem = msg.senderType === 'SYSTEM';
+                   
+                   {/* BEAUTIFUL SKELETON LOADER FOR CHAT TRANSITIONS */}
+                   {isChatLoading ? (
+                     <div className="flex-1 p-5 flex flex-col space-y-4">
+                       <div className="flex justify-start animate-pulse">
+                         <div className="bg-gray-200 w-2/3 h-12 rounded-2xl rounded-bl-sm"></div>
+                       </div>
+                       <div className="flex justify-end animate-pulse mt-4">
+                         <div className="bg-gray-300 w-1/2 h-10 rounded-2xl rounded-br-sm"></div>
+                       </div>
+                       <div className="flex justify-start animate-pulse mt-4">
+                         <div className="bg-gray-200 w-3/4 h-16 rounded-2xl rounded-bl-sm"></div>
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-5 relative custom-scrollbar">
+                        {messages.map((msg) => {
+                          const isUser = msg.senderType === 'CUSTOMER';
+                          const isSystem = msg.senderType === 'SYSTEM';
 
-                        if (isSystem) {
-                          if (msg.content.includes('[System: Customer Onboarded]')) return null;
+                          if (isSystem) {
+                            if (msg.content.includes('[System: Customer Onboarded]')) return null;
+                            return (
+                              <div key={msg.$id} className="text-center my-3">
+                                <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">
+                                   {msg.content}
+                                </span>
+                              </div>
+                            );
+                          }
+
                           return (
-                            <div key={msg.$id} className="text-center my-3">
-                              <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">
-                                 {msg.content}
-                              </span>
+                            <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed shadow-sm ${
+                                  isUser ? 'bg-[#000000] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'
+                                }`}>
+                                {msg.attachmentUrl && <img src={msg.attachmentUrl} alt="Attachment" className="mb-2 max-w-full rounded-lg object-cover max-h-[200px]" />}
+                                {msg.content && <span>{msg.content}</span>}
+                              </div>
                             </div>
                           );
-                        }
-
-                        return (
-                          <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed shadow-sm ${
-                                isUser ? 'bg-[#000000] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'
-                              }`}>
-                              {msg.attachmentUrl && <img src={msg.attachmentUrl} alt="Attachment" className="mb-2 max-w-full rounded-lg object-cover max-h-[200px]" />}
-                              {msg.content && <span>{msg.content}</span>}
+                        })}
+                        {isTyping && (
+                          <div className="flex justify-start">
+                            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-5 py-4 flex space-x-1.5 items-center">
+                              <div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce"></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                             </div>
                           </div>
-                        );
-                      })}
-                      {isTyping && (
-                        <div className="flex justify-start">
-                          <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-5 py-4 flex space-x-1.5 items-center">
-                            <div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce"></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                          </div>
-                        </div>
-                      )}
-                      <div ref={messagesEndRef} />
-                   </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                     </div>
+                   )}
 
                    {isViewingClosedTicket ? (
                      <div className="p-4 text-center bg-gray-100 border-t border-gray-200 shrink-0 pb-safe">
