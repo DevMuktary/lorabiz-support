@@ -27,6 +27,7 @@ export default function SupportWidget() {
   
   const [userDetails, setUserDetails] = useState({ name: '', email: '', topic: '', description: '' });
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  const [historyTickets, setHistoryTickets] = useState<Ticket[]>([]);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -34,30 +35,28 @@ export default function SupportWidget() {
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // SAFARI FIX: Read state injected by parent script via URL
+  // THE SAFARI FIX: Strict PostMessage Handshake with Parent Window
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const stateParam = params.get('state');
-      if (stateParam) {
-        try {
-          const parsed = JSON.parse(stateParam);
-          if (parsed.savedUserDetails) {
-            setUserDetails(prev => ({ ...prev, name: parsed.savedUserDetails.name || '', email: parsed.savedUserDetails.email || '' }));
-          }
-          if (parsed.savedTicketId) {
-            setActiveTicketId(parsed.savedTicketId);
-            setView('CHAT');
-          }
-        } catch (e) {}
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'LORA_RESTORE_STATE' && event.data.payload) {
+        const { savedUserDetails, savedTicketId } = event.data.payload;
+        if (savedUserDetails) setUserDetails(prev => ({ ...prev, name: savedUserDetails.name || '', email: savedUserDetails.email || '' }));
+        if (savedTicketId) {
+          setActiveTicketId(savedTicketId);
+        }
       }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    if (typeof window !== 'undefined' && window.parent) {
+      window.parent.postMessage('LORA_REQUEST_STATE', '*');
     }
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  // Sync state back to parent website LocalStorage
+  // Sync state back to parent window
   useEffect(() => {
     if (typeof window !== 'undefined' && window.parent && (userDetails.name || activeTicketId)) {
       window.parent.postMessage({
@@ -67,9 +66,9 @@ export default function SupportWidget() {
     }
   }, [userDetails, activeTicketId]);
 
-  // SECURE POLLING: Bypasses Safari blocking Appwrite Websockets
+  // Secure API Polling for History
   useEffect(() => {
-    if (view !== 'CHAT' || !activeTicketId) return;
+    if (!activeTicketId) return;
 
     const fetchChatHistory = async () => {
       try {
@@ -79,19 +78,25 @@ export default function SupportWidget() {
         });
         const data = await res.json();
         if (data.messages) {
-          // Replace state with server truth, maintaining any optimistic messages sent within the last second
           setMessages(prev => {
              const serverIds = new Set(data.messages.map((m: any) => m.$id));
              const optimisticMessages = prev.filter(m => m.$id.startsWith('temp_') && !serverIds.has(m.$id));
              return [...data.messages, ...optimisticMessages];
           });
+          
+          // Also track ticket status for the Hub view
+          if (data.ticketStatus) {
+            setHistoryTickets([{ $id: activeTicketId, status: data.ticketStatus, $createdAt: new Date().toISOString() }]);
+          }
         }
       } catch (err) {}
     };
 
-    fetchChatHistory(); // Initial fetch
-    const interval = setInterval(fetchChatHistory, 3000); // Poll every 3s
-    return () => clearInterval(interval);
+    if (view === 'CHAT' || view === 'HUB') {
+      fetchChatHistory();
+      const interval = setInterval(fetchChatHistory, 3000); 
+      return () => clearInterval(interval);
+    }
   }, [activeTicketId, view]);
 
   const scrollToBottom = () => {
@@ -108,8 +113,11 @@ export default function SupportWidget() {
     }
   };
 
+  const openTicket = historyTickets.find(t => t.status !== 'CLOSED');
+
   const handleStartChat = () => {
-    if (activeTicketId) {
+    if (openTicket) {
+      setActiveTicketId(openTicket.$id);
       setView('CHAT');
     } else {
       setUserDetails(prev => ({ ...prev, topic: '', description: '' }));
@@ -128,7 +136,6 @@ export default function SupportWidget() {
     e.preventDefault();
     if (!userDetails.name || !userDetails.email || !userDetails.topic) return;
     
-    // Generate an unguessable ticket ID for security
     const newTicketId = `TICKET_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
     setActiveTicketId(newTicketId);
     setMessages([]);
@@ -138,15 +145,10 @@ export default function SupportWidget() {
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
 
+      // Only ONE fetch call needed. Backend saves it silently. AI responds immediately.
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticketId: newTicketId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email }),
-      });
-      
-      // Send the actual visible message next
-      await fetch('/api/support/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId: newTicketId, message: `I need help with: ${userDetails.topic}. ${userDetails.description}`, senderName: userDetails.name }),
       });
     } catch (error) {} finally {
       setIsTyping(false);
@@ -157,7 +159,6 @@ export default function SupportWidget() {
     e.preventDefault();
     if ((!inputText.trim() && !selectedFile) || !activeTicketId) return;
 
-    // OPTIMISTIC UI: Instantly render message without waiting for server bounce
     const currentText = inputText;
     const tempId = `temp_${Date.now()}`;
     setInputText(''); 
@@ -174,7 +175,6 @@ export default function SupportWidget() {
     if (selectedFile) {
       setIsUploading(true);
       try {
-        // Upload file securely, only agents can read it
         const upload = await storage.createFile(BUCKET_ID, ID.unique(), selectedFile, [Permission.read(Role.team('agents'))]);
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
@@ -217,7 +217,7 @@ export default function SupportWidget() {
           {view === 'HUB' && (
              <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-5 flex flex-col space-y-6">
               <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border-2 border-[#8B2D75] overflow-hidden p-1.5">
+                <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center shrink-0 border border-gray-200 shadow-sm p-1">
                    <img src="/support.png" alt="Agent" className="w-full h-full object-contain" />
                 </div>
                 <div>
@@ -227,10 +227,17 @@ export default function SupportWidget() {
               </div>
 
               <div className="space-y-3">
-                <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-[#8B2D75] hover:bg-[#722360] text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
-                  <span className="font-bold text-[16px]">Send us a message</span>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                </button>
+                {openTicket ? (
+                  <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-green-600 hover:bg-green-700 text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
+                    <span className="font-bold text-[16px]">Resume Active Chat</span>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                  </button>
+                ) : (
+                  <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-[#8B2D75] hover:bg-[#722360] text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
+                    <span className="font-bold text-[16px]">Start a new conversation</span>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                  </button>
+                )}
                 
                 <div className="flex gap-3">
                   <a href="https://wa.me/YOUR_NUMBER" target="_blank" rel="noreferrer" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
@@ -238,23 +245,11 @@ export default function SupportWidget() {
                     <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                   </a>
                   <a href="mailto:support@lorabiz.com" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto">
-                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                     <span className="text-[14px] font-bold text-gray-800">Email</span>
                   </a>
                 </div>
               </div>
-
-              {activeTicketId && (
-                <div>
-                  <button onClick={() => setView('CHAT')} className="w-full bg-white border border-gray-100 rounded-xl p-4 text-left shadow-sm flex items-center justify-between hover:bg-gray-50">
-                    <div className="truncate pr-4">
-                       <p className="text-[15px] font-semibold text-gray-800">Resume Chat</p>
-                       <p className="text-[12px] text-gray-500">Continue your current conversation</p>
-                    </div>
-                    <svg className="w-5 h-5 text-[#8B2D75]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                </div>
-              )}
 
               <div className="mt-4 border-t border-gray-200 pt-6 pb-4">
                 <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-4">Frequently Asked Questions</h3>
@@ -321,7 +316,7 @@ export default function SupportWidget() {
                     const isSystem = msg.senderType === 'SYSTEM';
 
                     if (isSystem) {
-                      // HIDE the onboarding payload string from the UI entirely
+                      // STRIK FILTER: Completely hides the ugly onboarding text
                       if (msg.content.includes('[System: Customer Onboarded]')) return null;
                       
                       return (
@@ -391,13 +386,12 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* FIXED: Added p-2.5 for inner padding so the image fits perfectly and is never cut off */}
+      {/* Floating Launcher disappears seamlessly when widget opens */}
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
           className="w-[75px] h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-2 bg-white border-[#8B2D75] p-2.5 overflow-hidden"
         >
-          {/* object-contain ensures the image scales perfectly within the padding without clipping */}
           <img src="/support.png" alt="Support" className="w-full h-full object-contain" />
         </button>
       </div>
