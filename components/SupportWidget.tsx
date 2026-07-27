@@ -42,13 +42,14 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // INSTANT LOAD: Read Auth Data directly from the URL (Fixes Safari ITP)
   useEffect(() => {
     const initFromUrl = async () => {
+      console.log("[LORA: WIDGET] Booting up. Reading URL Parameters...");
       const params = new URLSearchParams(window.location.search);
       const urlUserId = params.get('userId');
       
       if (urlUserId) {
+        console.log(`[LORA: WIDGET] Extracted User ID from URL: ${urlUserId}`);
         setAuthUserId(urlUserId);
         setUserDetails(prev => ({ 
           ...prev, 
@@ -57,28 +58,37 @@ export default function SupportWidget() {
         }));
 
         try {
+          console.log(`[LORA: WIDGET] Firing API request to /api/support/chat for INIT_SESSION...`);
           const res = await fetch('/api/support/chat', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'INIT_SESSION', userId: urlUserId })
           });
           const data = await res.json();
+          console.log(`[LORA: WIDGET] Received API Response:`, data);
           
           if (data.status === 'SUCCESS' || data.status === 'NO_ACTIVE_TICKET') {
             if (data.allTickets) setHistoryTickets(data.allTickets);
             if (data.ticketId) {
+              console.log(`[LORA: WIDGET] Setting Active Ticket: ${data.ticketId}`);
               setActiveTicketId(data.ticketId);
               setMessages(data.messages || []);
             }
+          } else {
+            console.error(`[LORA: WIDGET ERROR] API returned unexpected status:`, data);
           }
-        } catch (err) {}
+        } catch (err) {
+          console.error(`[LORA: WIDGET ERROR] Failed to fetch INIT_SESSION:`, err);
+        }
+      } else {
+        console.log("[LORA: WIDGET] No User ID found in URL. Operating in anonymous mode.");
       }
       setIsInitializing(false);
+      console.log("[LORA: WIDGET] Initialization complete. Removing loading screen.");
     };
 
     initFromUrl();
   }, []);
 
-  // Secure API Polling
   useEffect(() => {
     if (!activeTicketId) return;
 
@@ -105,7 +115,6 @@ export default function SupportWidget() {
             
             if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
                const activeTicketIndex = historyTickets.findIndex(t => t.$id === activeTicketId);
-               // Only kick them out automatically if it was just closed remotely, not if they are intentionally viewing an old chat
                if (activeTicketIndex > -1 && historyTickets[activeTicketIndex].status !== 'CLOSED') {
                  alert("This conversation has been closed by the support team.");
                  setView('HUB');
@@ -114,13 +123,14 @@ export default function SupportWidget() {
             }
           }
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error(`[LORA: WIDGET ERROR] Polling fetchChatHistory failed:`, err);
+      }
     };
 
     if (view === 'CHAT') {
       fetchChatHistory();
       const currentTicket = historyTickets.find(t => t.$id === activeTicketId);
-      // Only poll heavily if the ticket is open
       if (currentTicket?.status !== 'CLOSED') {
         const interval = setInterval(fetchChatHistory, 3000); 
         return () => clearInterval(interval);
@@ -188,6 +198,7 @@ export default function SupportWidget() {
     e.preventDefault();
     if (!userDetails.name || !userDetails.email || !userDetails.topic) return;
     
+    console.log("[LORA: WIDGET] Creating new ticket for User:", authUserId);
     const newTicketId = `TICKET_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
     setActiveTicketId(newTicketId);
     setMessages([]);
@@ -203,9 +214,10 @@ export default function SupportWidget() {
           ticketId: newTicketId, userId: authUserId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email 
         }),
       });
-      // Add immediately to history view
       setHistoryTickets(prev => [{ $id: newTicketId, status: 'OPEN', $createdAt: new Date().toISOString(), title: userDetails.topic }, ...prev]);
-    } catch (error) {} finally {
+    } catch (error) {
+      console.error("[LORA: WIDGET ERROR] Failed to create ticket:", error);
+    } finally {
       setIsTyping(false);
     }
   };
@@ -337,7 +349,6 @@ export default function SupportWidget() {
                     </div>
                   </div>
 
-                  {/* HISTORY FIX: Render Previous Conversations */}
                   {closedTickets.length > 0 && (
                     <div className="mt-2 border-t border-gray-200 pt-5">
                       <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Previous Conversations</h3>
@@ -460,7 +471,6 @@ export default function SupportWidget() {
                       <div ref={messagesEndRef} />
                    </div>
 
-                   {/* HISTORY FIX: Block Input if viewing a closed ticket */}
                    {isViewingClosedTicket ? (
                      <div className="p-4 text-center bg-gray-100 border-t border-gray-200 shrink-0 pb-safe">
                        <span className="text-[14px] text-gray-500 font-medium">This conversation is closed.</span>
