@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Ticket, Message } from '@/types/dashboard';
 import TicketContext from './TicketContext';
-import { ChevronLeft, Send, Lock, Info } from 'lucide-react';
+import { ChevronLeft, Send, Lock, Info, ArrowDown } from 'lucide-react';
 
 interface ChatAreaProps {
   ticket: Ticket;
@@ -21,25 +21,47 @@ export default function ChatArea({
 }: ChatAreaProps) {
   const [replyContent, setReplyContent] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
-  const [showMobileContext, setShowMobileContext] = useState(false); // Mobile context drawer state
+  const [showMobileContext, setShowMobileContext] = useState(false); 
+  
+  // SMART SCROLL STATE
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Monitor scroll position
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      // If the agent scrolls up more than 150px from the bottom, pause auto-scroll
+      const isUp = scrollHeight - scrollTop - clientHeight > 150;
+      setIsScrolledUp(isUp);
+    }
+  };
+
+  // Only auto-scroll if the agent is ALREADY at the bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!isScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isCustomerTyping]);
 
+  // Force scroll to bottom when agent sends a message
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyContent.trim()) return;
     onSendMessage(replyContent, isInternalNote);
     setReplyContent('');
+    setIsScrolledUp(false); // Reset smart scroll
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
   return (
     <div className="flex-1 flex overflow-hidden bg-[#0a1126] relative">
       
       {/* CENTER PANE: Messages & Input */}
-      <div className={`flex-1 flex flex-col min-w-0 transition-transform ${showMobileContext ? '-translate-x-full lg:translate-x-0' : ''}`}>
+      <div className={`flex-1 flex flex-col min-w-0 transition-transform ${showMobileContext ? '-translate-x-full lg:translate-x-0' : ''} relative`}>
         
         {/* Header */}
         <header className="px-4 py-3 md:px-6 md:py-5 border-b border-white/5 bg-[#0d152b] flex items-center justify-between z-10 shrink-0">
@@ -58,12 +80,10 @@ export default function ChatArea({
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Context Toggle for Mobile/Tablet */}
             <button onClick={() => setShowMobileContext(!showMobileContext)} className="xl:hidden p-2 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 transition-colors">
               <Info className="w-5 h-5" />
             </button>
 
-            {/* Quick Actions */}
             {ticket.status === 'PENDING_AGENT' && (
               <button onClick={onPickTicket} disabled={loading} className="px-4 py-2.5 bg-[#c82d75] hover:bg-[#a62460] text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors shadow-lg shadow-[#c82d75]/20">Accept</button>
             )}
@@ -76,8 +96,12 @@ export default function ChatArea({
           </div>
         </header>
 
-        {/* Message Feed */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+        {/* Message Feed with onScroll Listener */}
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar relative"
+        >
           {messages.map((msg) => {
             const isInternal = msg.content.startsWith('[INTERNAL NOTE]');
             const displayContent = isInternal ? msg.content.replace('[INTERNAL NOTE]:', '').trim() : msg.content;
@@ -129,12 +153,25 @@ export default function ChatArea({
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Floating Scroll-to-Bottom Button */}
+        {isScrolledUp && (
+          <button
+            onClick={() => {
+              setIsScrolledUp(false);
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="absolute bottom-24 right-6 bg-[#c82d75] text-white p-3 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.5)] hover:bg-[#a62460] hover:scale-105 transition-all z-20 flex items-center justify-center animate-bounce border border-white/10"
+            title="Scroll to latest message"
+          >
+            <ArrowDown className="w-5 h-5" />
+          </button>
+        )}
+
         {/* Input Area */}
-        <div className="p-3 md:p-5 bg-[#0d152b] border-t border-white/5 shrink-0 pb-safe">
+        <div className="p-3 md:p-5 bg-[#0d152b] border-t border-white/5 shrink-0 pb-safe z-10">
           {ticket.status === 'IN_PROGRESS' ? (
             <form onSubmit={handleSubmit} className="flex flex-col gap-3 max-w-4xl mx-auto">
               
-              {/* Note Toggle */}
               <div className="flex items-center gap-2 px-1">
                 <button
                   type="button"
