@@ -31,7 +31,7 @@ interface CustomDialog {
 
 export default function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false);
-  const [hasUnread, setHasUnread] = useState(false); 
+  const [unreadCount, setUnreadCount] = useState(0); 
   const [view, setView] = useState<'HUB' | 'ONBOARDING' | 'CHAT'>('HUB');
   
   const [authUserId, setAuthUserId] = useState<string | null>(null);
@@ -54,9 +54,14 @@ export default function SupportWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Keep track of isOpen state for the background polling interval
   const isOpenRef = useRef(isOpen);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+
+  const historyTicketsRef = useRef(historyTickets);
+  useEffect(() => { historyTicketsRef.current = historyTickets; }, [historyTickets]);
+
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
 
   useEffect(() => {
     const initFromUrl = async () => {
@@ -96,6 +101,8 @@ export default function SupportWidget() {
   useEffect(() => {
     if (!activeTicketId) return;
 
+    let intervalId: NodeJS.Timeout;
+
     const fetchChatHistory = async () => {
       try {
         const res = await fetch('/api/support/chat', {
@@ -108,10 +115,21 @@ export default function SupportWidget() {
           setMessages(prev => {
              const prevIds = new Set(prev.map(m => m.$id));
              
-             // Detect if there are newly arrived messages that aren't from the customer
-             const newIncomingMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id) && m.senderType !== 'CUSTOMER');
-             if (newIncomingMsgs.length > 0 && !isOpenRef.current) {
-                 setHasUnread(true); // Trigger badge if widget is closed
+             const newMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id));
+             const newReplies = newMsgs.filter((m: any) => m.senderType === 'AGENT' || m.senderType === 'ASSISTANT');
+             
+             // 🚀 THE FIX: Smart Unread Counter Logic 🚀
+             if (!isOpenRef.current && data.messages.length > 0) {
+                 if (prev.length === 0) {
+                     // Initial load check: Is the very last message unread?
+                     const lastMsg = data.messages[data.messages.length - 1];
+                     if (lastMsg && (lastMsg.senderType === 'AGENT' || lastMsg.senderType === 'ASSISTANT')) {
+                         setUnreadCount(1);
+                     }
+                 } else if (newReplies.length > 0) {
+                     // Background poll update
+                     setUnreadCount(count => count + newReplies.length);
+                 }
              }
 
              const serverIds = new Set(data.messages.map((m: any) => m.$id));
@@ -122,9 +140,11 @@ export default function SupportWidget() {
           setIsChatLoading(false); 
           
           if (data.ticketStatus) {
-            if (data.ticketStatus === 'CLOSED' && view === 'CHAT') {
-               const activeTicket = historyTickets.find(t => t.$id === activeTicketId);
-               if (activeTicket && activeTicket.status !== 'CLOSED') {
+            if (data.ticketStatus === 'CLOSED') {
+               clearInterval(intervalId);
+               
+               const currentTicket = historyTicketsRef.current.find(t => t.$id === activeTicketId);
+               if (currentTicket && currentTicket.status !== 'CLOSED' && viewRef.current === 'CHAT') {
                  setDialog({
                    isOpen: true, type: 'alert', title: 'Chat Closed', 
                    message: 'This conversation has been securely closed by our support team or due to inactivity.'
@@ -141,18 +161,16 @@ export default function SupportWidget() {
             });
           }
         }
-      } catch (err) {}
+      } catch (err) {
+         setIsChatLoading(false); 
+      }
     };
-
-    const currentTicket = historyTickets.find(t => t.$id === activeTicketId);
     
-    // Allow polling EVEN IF closed, so the Unread Badge can trigger
-    if (currentTicket?.status !== 'CLOSED') {
-      fetchChatHistory();
-      const interval = setInterval(fetchChatHistory, 3000); 
-      return () => clearInterval(interval);
-    }
-  }, [activeTicketId, historyTickets, view]); 
+    fetchChatHistory();
+    intervalId = setInterval(fetchChatHistory, 3000); 
+    
+    return () => clearInterval(intervalId);
+  }, [activeTicketId]);
 
   const scrollToBottom = () => {
     setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, 150);
@@ -161,7 +179,7 @@ export default function SupportWidget() {
 
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
-    if (newState) setHasUnread(false); // Clear badge when opened
+    if (newState) setUnreadCount(0); // Clear badge completely when opened
     if (newState && !activeTicketId) setView('HUB');
     if (typeof window !== 'undefined' && window.parent) {
       window.parent.postMessage(newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', '*');
@@ -603,8 +621,10 @@ export default function SupportWidget() {
           <img src="/support.png" alt="Support" className="w-full h-full object-cover rounded-full" />
           
           {/* UNREAD BADGE INDICATOR */}
-          {hasUnread && (
-            <span className="absolute top-0 right-0 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 border-2 border-white rounded-full shadow-md animate-pulse"></span>
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 border-2 border-white rounded-full shadow-md flex items-center justify-center text-[10px] font-bold text-white animate-bounce">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
           )}
         </button>
       </div>
