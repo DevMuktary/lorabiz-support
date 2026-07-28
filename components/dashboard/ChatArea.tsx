@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Ticket, Message } from '@/types/dashboard';
 import TicketContext from './TicketContext';
-import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw } from 'lucide-react';
+import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X } from 'lucide-react';
 
 interface ChatAreaProps {
   ticket: Ticket;
@@ -13,7 +13,7 @@ interface ChatAreaProps {
   onPickTicket: () => void;
   onEndChat: () => void;
   onReopenTicket: () => void;
-  onSendMessage: (content: string, isInternalNote: boolean) => void;
+  onSendMessage: (content: string, isInternalNote: boolean, file: File | null) => void;
 }
 
 export default function ChatArea({
@@ -26,8 +26,22 @@ export default function ChatArea({
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [dialog, setDialog] = useState<{ isOpen: boolean, title: string, message: string, action: () => void } | null>(null);
 
+  // 🚀 NEW FILE STATE 🚀
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const cleanMessages = messages.filter(msg => {
+    const text = msg.content || '';
+    if (text.includes('[INTERNAL NOTE]')) return true; 
+    if (msg.senderType?.toUpperCase() === 'SYSTEM') return false; 
+    if (text.includes('[System:')) return false; 
+    if (text.includes('SYSTEM DIRECTIVE:')) return false; 
+    return true;
+  });
 
   const handleScroll = () => {
     if (scrollContainerRef.current) {
@@ -37,28 +51,49 @@ export default function ChatArea({
   };
 
   useEffect(() => {
-    if (!isScrolledUp && !isFetchingChat) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isCustomerTyping, isFetchingChat]);
+    if (!isScrolledUp && !isFetchingChat) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [cleanMessages.length, isCustomerTyping, isFetchingChat]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      if (e.target.files[0].size > 5 * 1024 * 1024) { 
+        setDialog({ isOpen: true, title: 'File Too Large', message: 'Attachment must be less than 5MB.', action: () => setDialog(null) });
+        return; 
+      }
+      setSelectedFile(e.target.files[0]);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!replyContent.trim()) return;
-    onSendMessage(replyContent, isInternalNote);
+    if (!replyContent.trim() && !selectedFile) return;
+    
+    onSendMessage(replyContent, isInternalNote, selectedFile);
+    
     setReplyContent('');
+    setSelectedFile(null); // Clear file after send
     setIsScrolledUp(false); 
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
-  // 1. EXTRACT REAL NAME
-  const realCustomerName = messages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName;
+  const realCustomerName = cleanMessages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName;
   const displayIdentifier = ticket.customerPhone || ticket.customerEmail || `Ticket #${ticket.$id.slice(-6)}`;
-
-  // 2. FILTER OUT UGLY SYSTEM MESSAGES (Keep only Internal Notes)
-  const cleanMessages = messages.filter(msg => msg.senderType !== 'SYSTEM' || msg.content.startsWith('[INTERNAL NOTE]'));
 
   return (
     <div className="flex-1 flex overflow-hidden bg-[#0a1126] relative">
       
+      {/* 🚀 IMAGE LIGHTBOX MODAL 🚀 */}
+      {lightboxImage && (
+        <div className="absolute inset-0 z-[999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in" onClick={() => setLightboxImage(null)}>
+          <button className="absolute top-6 right-6 text-white/50 hover:text-white bg-white/10 p-2 rounded-full transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+          <img src={lightboxImage} alt="Enlarged Attachment" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+        </div>
+      )}
+
       {/* CONFIRMATION DIALOG */}
       {dialog && dialog.isOpen && (
         <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
@@ -67,7 +102,7 @@ export default function ChatArea({
             <p className="text-gray-400 text-sm mb-6 leading-relaxed">{dialog.message}</p>
             <div className="flex gap-3 justify-end">
               <button onClick={() => setDialog(null)} className="px-4 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors">Cancel</button>
-              <button onClick={dialog.action} className="px-5 py-2 rounded-lg text-sm font-bold bg-[#c82d75] hover:bg-[#a62460] text-white transition-colors">Confirm</button>
+              <button onClick={dialog.action} className="px-5 py-2 rounded-lg text-sm font-bold bg-[#c82d75] hover:bg-[#a62460] text-white transition-colors">Okay</button>
             </div>
           </div>
         </div>
@@ -129,10 +164,10 @@ export default function ChatArea({
                         isInternal
                           ? 'bg-amber-900/40 text-amber-100 border border-amber-500/30 rounded-2xl rounded-tr-sm' 
                         : msg.senderType === 'AGENT'
-                          ? 'bg-[#c82d75] text-white rounded-2xl rounded-tr-sm shadow-md' // AGENT COLOR
+                          ? 'bg-[#c82d75] text-white rounded-2xl rounded-tr-sm shadow-md'
                         : msg.senderType === 'ASSISTANT'
-                          ? 'bg-[#1e1b4b] text-indigo-100 border border-indigo-500/30 rounded-2xl rounded-tl-sm' // DISTINCT LORA COLOR
-                        : 'bg-[#131b33] text-gray-200 border border-white/5 rounded-2xl rounded-tl-sm' // CUSTOMER COLOR
+                          ? 'bg-[#1e1b4b] text-indigo-100 border border-indigo-500/30 rounded-2xl rounded-tl-sm'
+                        : 'bg-[#131b33] text-gray-200 border border-white/5 rounded-2xl rounded-tl-sm'
                       }`}
                     >
                       {isInternal && (
@@ -140,10 +175,33 @@ export default function ChatArea({
                           <Lock className="w-3 h-3" /> Internal Note
                         </div>
                       )}
+                      
+                      {/* 🚀 ATTACHMENT RENDERER WITH PDF FALLBACK 🚀 */}
                       {msg.attachmentUrl && (
-                        <img src={msg.attachmentUrl} alt="Attachment" className="mb-3 max-w-full rounded-xl border border-white/10" />
+                        <div className="mb-2">
+                          <img 
+                            src={msg.attachmentUrl} 
+                            alt="Attachment" 
+                            className="max-w-full rounded-xl border border-white/10 cursor-pointer hover:opacity-80 transition-opacity" 
+                            onClick={() => setLightboxImage(msg.attachmentUrl!)}
+                            onError={(e) => {
+                              // If it fails to load as an image, it's likely a PDF. Hide the broken image tag and show the link.
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                            }}
+                          />
+                          <a 
+                            href={msg.attachmentUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="hidden flex items-center justify-center gap-2 px-4 py-3 bg-white/10 rounded-xl text-sm font-medium hover:bg-white/20 transition-colors text-white border border-white/10"
+                          >
+                            📄 View Document
+                          </a>
+                        </div>
                       )}
-                      <span className="leading-relaxed whitespace-pre-wrap">{displayContent}</span>
+
+                      {msg.content && <span className="leading-relaxed whitespace-pre-wrap">{displayContent}</span>}
                       
                       <span className={`block text-[10px] font-bold mt-2 uppercase tracking-wider opacity-60 ${msg.senderType === 'AGENT' || isInternal ? 'text-right' : 'text-left'}`}>
                         {msg.senderName} • {new Date(msg.$createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -165,7 +223,6 @@ export default function ChatArea({
           )}
         </div>
 
-        {/* Scroll Button */}
         {isScrolledUp && !isFetchingChat && (
           <button onClick={() => { setIsScrolledUp(false); messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }} className="absolute bottom-24 right-6 bg-[#c82d75] text-white p-3 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.5)] hover:scale-105 transition-all z-20 flex items-center animate-bounce border border-white/10">
             <ArrowDown className="w-5 h-5" />
@@ -176,13 +233,36 @@ export default function ChatArea({
         <div className="p-3 md:p-5 bg-[#0d152b] border-t border-white/5 shrink-0 pb-safe z-10">
           {ticket.status === 'IN_PROGRESS' ? (
             <form onSubmit={handleSubmit} className="flex flex-col gap-3 max-w-4xl mx-auto">
-              <div className="flex items-center gap-2 px-1">
-                <button type="button" onClick={() => setIsInternalNote(false)} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors ${!isInternalNote ? 'bg-white/10 text-white' : 'text-gray-500 hover:bg-white/5'}`}>Reply Customer</button>
-                <button type="button" onClick={() => setIsInternalNote(true)} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 ${isInternalNote ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'text-gray-500 hover:bg-white/5'}`}><Lock className="w-3 h-3" /> Internal Note</button>
+              
+              {/* Note Toggle & Selected File Preview */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setIsInternalNote(false)} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors ${!isInternalNote ? 'bg-white/10 text-white' : 'text-gray-500 hover:bg-white/5'}`}>Reply Customer</button>
+                  <button type="button" onClick={() => setIsInternalNote(true)} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 ${isInternalNote ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'text-gray-500 hover:bg-white/5'}`}><Lock className="w-3 h-3" /> Internal Note</button>
+                </div>
+
+                {selectedFile && (
+                  <div className="flex items-center bg-white/5 rounded-lg px-3 py-1.5 text-[11px] font-medium text-gray-300 shadow-sm border border-white/10 w-full sm:w-auto max-w-[200px]">
+                    <Paperclip className="w-3 h-3 mr-1.5 shrink-0 text-[#c82d75]" />
+                    <span className="truncate flex-1">{selectedFile.name}</span>
+                    <button onClick={() => setSelectedFile(null)} className="ml-2 text-gray-400 hover:text-red-400 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
+
               <div className="flex gap-2">
+                {/* Hidden File Input */}
+                <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
+                
+                {/* Paperclip Button */}
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3.5 bg-white/5 text-gray-400 hover:text-[#c82d75] hover:bg-white/10 transition-colors rounded-xl shrink-0">
+                  <Paperclip className="w-5 h-5" />
+                </button>
+
                 <input type="text" placeholder={isInternalNote ? "Type a private note..." : "Type your reply to the customer..."} value={replyContent} onChange={(e) => setReplyContent(e.target.value)} className={`flex-1 border rounded-xl px-5 py-4 text-[15px] focus:outline-none focus:ring-1 focus:border-transparent transition-all placeholder:text-gray-500 ${isInternalNote ? 'bg-amber-900/20 border-amber-500/30 focus:ring-amber-500 text-amber-100 placeholder:text-amber-700/50' : 'bg-[#050b1b] border-white/10 focus:ring-[#c82d75] text-white'}`} />
-                <button type="submit" disabled={loading || !replyContent.trim()} className={`px-6 rounded-xl flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-lg ${isInternalNote ? 'bg-amber-500 hover:bg-amber-600 text-amber-950' : 'bg-[#c82d75] hover:bg-[#a62460] text-white'}`}><Send className="w-5 h-5" /></button>
+                <button type="submit" disabled={loading || (!replyContent.trim() && !selectedFile)} className={`px-6 rounded-xl flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-lg ${isInternalNote ? 'bg-amber-500 hover:bg-amber-600 text-amber-950' : 'bg-[#c82d75] hover:bg-[#a62460] text-white'}`}><Send className="w-5 h-5" /></button>
               </div>
             </form>
           ) : (
