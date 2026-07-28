@@ -27,7 +27,6 @@ export default function DashboardPage() {
   const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
   const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
-  // Use a ref to track the active ticket ID without triggering infinite re-renders
   const activeTicketIdRef = useRef<string | null>(null);
   activeTicketIdRef.current = selectedTicket?.$id || null;
 
@@ -39,12 +38,10 @@ export default function DashboardPage() {
       const fetchedTickets = response.documents as unknown as Ticket[];
       setTickets(fetchedTickets);
       
-      // Silently update the selected ticket data if it changed in the background
       if (activeTicketIdRef.current) {
         const updated = fetchedTickets.find(t => t.$id === activeTicketIdRef.current);
         if (updated) {
           setSelectedTicket(prev => {
-            // Only update if status or something major changed to prevent UI bouncing
             if (prev?.status !== updated.status || prev?.lastMessage !== updated.lastMessage) {
               return updated;
             }
@@ -67,7 +64,6 @@ export default function DashboardPage() {
     }
   };
 
-  // 1. TICKET SUBSCRIPTION (Runs once)
   useEffect(() => {
     if (!user) return;
     let unsubscribeTickets = () => {};
@@ -91,9 +87,8 @@ export default function DashboardPage() {
 
     initSecureSession();
     return () => unsubscribeTickets();
-  }, [user, dbId, ticketsCol]); // No selectedTicket dependency = NO INFINITE LOOP
+  }, [user, dbId, ticketsCol]);
 
-  // 2. MESSAGE SUBSCRIPTION (Runs when active ticket changes)
   const activeTicketId = selectedTicket?.$id;
   useEffect(() => {
     if (!activeTicketId || !user) return;
@@ -112,18 +107,28 @@ export default function DashboardPage() {
   }, [activeTicketId, dbId, messagesCol, user]);
 
   // ==========================================
-  // OUTBOUND API HELPER
+  // SMART OUTBOUND NOTIFICATIONS
   // ==========================================
-  const notifyExternalChannel = async (ticket: Ticket, content: string, agentName: string) => {
+  const notifyExternalChannel = async (
+    ticket: Ticket, 
+    content: string, 
+    agentName: string, 
+    actionType: 'REPLY' | 'GREETING' | 'CLOSE' | 'REOPEN'
+  ) => {
     try {
+      // In-App widget natively gets all messages, no ping needed here.
+      
       if (ticket.sourceChannel === 'WHATSAPP' && ticket.customerPhone) {
         await fetch('/api/support/outbound', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ customerPhone: ticket.customerPhone, content })
         });
-      } else if (ticket.sourceChannel === 'EMAIL' && ticket.customerEmail) {
-        // Find real customer name if possible, fallback to 'Customer'
+      } 
+      else if (ticket.sourceChannel === 'EMAIL' && ticket.customerEmail) {
+        // STRICT EMAIL RULE: Save quota by ignoring Greetings and Reopen messages
+        if (actionType === 'GREETING' || actionType === 'REOPEN') return;
+
         const realName = messages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName || 'Customer';
         await fetch('/api/support/email/outbound', {
           method: 'POST',
@@ -155,14 +160,12 @@ export default function DashboardPage() {
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
       
-      // FIX: Write as AGENT so it bypasses the system filter and shows to the user
       await databases.createDocument(dbId, messagesCol, ID.unique(), { 
         ticketId: selectedTicket.$id, senderType: 'AGENT', senderName: agentName, 
         sourceChannel: selectedTicket.sourceChannel, content: greetingMsg 
       });
       
-      // Send greeting to WhatsApp/Email
-      await notifyExternalChannel(selectedTicket, greetingMsg, agentName);
+      await notifyExternalChannel(selectedTicket, greetingMsg, agentName, 'GREETING');
       fetchTickets();
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -181,8 +184,7 @@ export default function DashboardPage() {
         sourceChannel: selectedTicket.sourceChannel, content: endMsg 
       });
       
-      // Notify user that chat is closed
-      await notifyExternalChannel(selectedTicket, endMsg, agentName);
+      await notifyExternalChannel(selectedTicket, endMsg, agentName, 'CLOSE');
       fetchTickets(); 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -201,8 +203,7 @@ export default function DashboardPage() {
         sourceChannel: selectedTicket.sourceChannel, content: reopenMsg 
       });
 
-      // Notify user that chat is reopened
-      await notifyExternalChannel(selectedTicket, reopenMsg, agentName);
+      await notifyExternalChannel(selectedTicket, reopenMsg, agentName, 'REOPEN');
       fetchTickets(); 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -221,9 +222,8 @@ export default function DashboardPage() {
         content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent 
       });
 
-      // ONLY push to WhatsApp/Email if it's NOT an internal note!
       if (!isInternalNote) {
-        await notifyExternalChannel(selectedTicket, replyContent, agentName);
+        await notifyExternalChannel(selectedTicket, replyContent, agentName, 'REPLY');
       }
 
     } catch (err) { console.error(err); } finally { setLoading(false); }
