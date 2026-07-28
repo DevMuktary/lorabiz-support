@@ -5,7 +5,10 @@ import { NextResponse } from 'next/server';
 const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/support/email/outbound',
-  '/sign-in(.*)'
+  '/sign-in(.*)',
+  '/api/cron(.*)',         // ALLOWS CRON JOB TO PASS
+  '/api/internal(.*)',     // ALLOWS MAIN APP VERIFICATION TO PASS
+  '/api/support/chat(.*)'  // ALLOWS WEB WIDGET TO PASS
 ]);
 
 // 2. Explicitly target the sign-up route
