@@ -179,36 +179,11 @@ export async function processWhatsAppMessage(body: any) {
      try {
         const flowData = JSON.parse(message.interactive.nfm_reply.response_json);
         const customerEmail = flowData.customer_email;
-        customerName = flowData.customer_name || customerName;
+        customerName = flowData.customer_name || customerName; // Temporary fallback
 
         const parsedTopic = (flowData.service_topic || '').includes('_') ? flowData.service_topic.split('_').slice(1).join(' ') : (flowData.service_topic || 'General Support');
-        const systemMessage = `[System: Customer Onboarded]\nName: ${customerName}\nEmail: ${customerEmail}\nTopic: ${parsedTopic}\nDescription: ${flowData.issue_description}`;
 
-        // Create or Update Ticket to ONBOARDING
-        let ticketId = '';
-        if (ticket) {
-          ticketId = ticket.$id;
-          await databases.updateDocument(dbId, ticketsCol, ticketId, { 
-            status: 'ONBOARDING', 
-            lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`,
-            lastActivityAt: new Date().toISOString(),
-            warningSent: false
-          });
-        } else {
-          const newTicket = await databases.createDocument(dbId, ticketsCol, ID.unique(), {
-            customerPhone, sourceChannel: 'WHATSAPP', status: 'ONBOARDING', 
-            lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`,
-            lastActivityAt: new Date().toISOString(), warningSent: false
-          });
-          ticketId = newTicket.$id;
-        }
-
-        // Save Flow details
-        await databases.createDocument(dbId, messagesCol, ID.unique(), {
-          ticketId, senderType: 'SYSTEM', senderName: 'System', content: systemMessage
-        });
-
-        // Anti-Enumeration Generic Message
+        // 1. Anti-Enumeration Generic Message (Instantly sent to prevent guessing)
         await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
           method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -226,7 +201,7 @@ export async function processWhatsAppMessage(body: any) {
           })
         });
 
-        // Silent Verification
+        // 2. Silent Verification on Main App
         const mainAppUrl = process.env.MAIN_APP_URL?.replace(/\/$/, ""); 
         const verifyRes = await fetch(`${mainAppUrl}/api/internal/verify-user`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -234,9 +209,39 @@ export async function processWhatsAppMessage(body: any) {
         });
         const verifyData = await verifyRes.json();
 
-        if (!verifyRes.ok || !verifyData.exists) return; 
+        if (!verifyRes.ok || !verifyData.exists) return; // Silent Stop
 
-        // Generate & Send OTP
+        // 3. STRICT OVERRIDE: Replace typed name with Official DB Name
+        if (verifyData.name) {
+           customerName = verifyData.name;
+        }
+
+        // 4. Create/Update Ticket & Save System Message
+        const systemMessage = `[System: Customer Onboarded]\nName: ${customerName}\nEmail: ${customerEmail}\nTopic: ${parsedTopic}\nDescription: ${flowData.issue_description}`;
+        let ticketId = '';
+        
+        if (ticket) {
+          ticketId = ticket.$id;
+          await databases.updateDocument(dbId, ticketsCol, ticketId, { 
+            status: 'ONBOARDING', 
+            lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`,
+            lastActivityAt: new Date().toISOString(),
+            warningSent: false
+          });
+        } else {
+          const newTicket = await databases.createDocument(dbId, ticketsCol, ID.unique(), {
+            customerPhone, sourceChannel: 'WHATSAPP', status: 'ONBOARDING', 
+            lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`,
+            lastActivityAt: new Date().toISOString(), warningSent: false
+          });
+          ticketId = newTicket.$id;
+        }
+
+        await databases.createDocument(dbId, messagesCol, ID.unique(), {
+          ticketId, senderType: 'SYSTEM', senderName: 'System', content: systemMessage
+        });
+
+        // 5. Generate & Send OTP using the Verified Name
         const otpResponse = await handleOTPRequest(customerPhone, customerEmail, false);
         if (!otpResponse.success) return; 
 
