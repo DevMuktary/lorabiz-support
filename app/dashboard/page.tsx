@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { client, databases, account } from '@/lib/appwrite-client';
 import { Query, ID } from 'appwrite'; 
@@ -27,19 +27,31 @@ export default function DashboardPage() {
   const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
   const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
+  // Use a ref to track the active ticket ID without triggering infinite re-renders
+  const activeTicketIdRef = useRef<string | null>(null);
+  activeTicketIdRef.current = selectedTicket?.$id || null;
+
   useEffect(() => { setBusinessStatus(checkBusinessHours()); }, []);
 
   const fetchTickets = async () => {
     try {
       const response = await databases.listDocuments(dbId, ticketsCol, [Query.orderDesc('$createdAt')]);
-      setTickets(response.documents as unknown as Ticket[]);
+      const fetchedTickets = response.documents as unknown as Ticket[];
+      setTickets(fetchedTickets);
       
-      // Update selected ticket data WITHOUT changing the object reference if we don't need to
-      setSelectedTicket((prev) => {
-        if (!prev) return null;
-        const updated = response.documents.find(t => t.$id === prev.$id);
-        return updated ? (updated as unknown as Ticket) : prev;
-      });
+      // Silently update the selected ticket data if it changed in the background
+      if (activeTicketIdRef.current) {
+        const updated = fetchedTickets.find(t => t.$id === activeTicketIdRef.current);
+        if (updated) {
+          setSelectedTicket(prev => {
+            // Only update if status or something major changed to prevent UI bouncing
+            if (prev?.status !== updated.status || prev?.lastMessage !== updated.lastMessage) {
+              return updated;
+            }
+            return prev;
+          });
+        }
+      }
     } catch (err) { console.error(err); } finally {
       setIsPageLoading(false);
     }
@@ -55,6 +67,7 @@ export default function DashboardPage() {
     }
   };
 
+  // 1. TICKET SUBSCRIPTION (Runs once)
   useEffect(() => {
     if (!user) return;
     let unsubscribeTickets = () => {};
@@ -72,17 +85,16 @@ export default function DashboardPage() {
       fetchTickets();
       unsubscribeTickets = client.subscribe(`databases.${dbId}.collections.${ticketsCol}.documents`, (response: any) => {
         fetchTickets(); 
-        if (response.payload.$id === selectedTicket?.$id) setIsCustomerTyping(response.payload.customerTyping || false);
+        if (response.payload.$id === activeTicketIdRef.current) setIsCustomerTyping(response.payload.customerTyping || false);
       });
     };
 
     initSecureSession();
     return () => unsubscribeTickets();
-  }, [user, dbId, ticketsCol]); // Removed selectedTicket to prevent loop
+  }, [user, dbId, ticketsCol]); // No selectedTicket dependency = NO INFINITE LOOP
 
-  // BUG FIX: Only track the ID so it doesn't infinite-loop when the ticket object updates!
+  // 2. MESSAGE SUBSCRIPTION (Runs when active ticket changes)
   const activeTicketId = selectedTicket?.$id;
-
   useEffect(() => {
     if (!activeTicketId || !user) return;
     fetchMessages(activeTicketId);
@@ -99,23 +111,78 @@ export default function DashboardPage() {
     return () => unsubscribeMessages();
   }, [activeTicketId, dbId, messagesCol, user]);
 
+  // ==========================================
+  // OUTBOUND API HELPER
+  // ==========================================
+  const notifyExternalChannel = async (ticket: Ticket, content: string, agentName: string) => {
+    try {
+      if (ticket.sourceChannel === 'WHATSAPP' && ticket.customerPhone) {
+        await fetch('/api/support/outbound', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerPhone: ticket.customerPhone, content })
+        });
+      } else if (ticket.sourceChannel === 'EMAIL' && ticket.customerEmail) {
+        // Find real customer name if possible, fallback to 'Customer'
+        const realName = messages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName || 'Customer';
+        await fetch('/api/support/email/outbound', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            toEmail: ticket.customerEmail,
+            customerName: realName,
+            type: 'AGENT_REPLY',
+            content,
+            ticketId: ticket.$id,
+            agentName
+          })
+        });
+      }
+    } catch (err) {
+      console.error("Failed to notify external channel:", err);
+    }
+  };
+
+  // ==========================================
+  // ACTIONS
+  // ==========================================
   const handlePickTicket = async () => {
     if (!selectedTicket || !user) return;
     setLoading(true);
     const agentName = user.firstName || 'Support Agent';
+    const greetingMsg = `Hi, my name is ${agentName} and I will be supporting you today. Please give me a minute to review the chat.`;
+    
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
-      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel, content: `Hi, my name is ${agentName} and I will be supporting you today. Please give me a minute to review the chat.` });
+      
+      // FIX: Write as AGENT so it bypasses the system filter and shows to the user
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { 
+        ticketId: selectedTicket.$id, senderType: 'AGENT', senderName: agentName, 
+        sourceChannel: selectedTicket.sourceChannel, content: greetingMsg 
+      });
+      
+      // Send greeting to WhatsApp/Email
+      await notifyExternalChannel(selectedTicket, greetingMsg, agentName);
       fetchTickets();
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
   const handleEndChat = async () => {
-    if (!selectedTicket) return;
+    if (!selectedTicket || !user) return;
     setLoading(true);
+    const agentName = user.firstName || 'Support Agent';
+    const endMsg = 'The human agent has closed this session. If you need further assistance, please start a new request.';
+
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'CLOSED', assignedAgentId: null });
-      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel, content: 'The human agent has closed this session. If you need further assistance, please start a new request.' });
+      
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { 
+        ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', 
+        sourceChannel: selectedTicket.sourceChannel, content: endMsg 
+      });
+      
+      // Notify user that chat is closed
+      await notifyExternalChannel(selectedTicket, endMsg, agentName);
       fetchTickets(); 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -124,9 +191,18 @@ export default function DashboardPage() {
     if (!selectedTicket || !user) return;
     setLoading(true);
     const agentName = user.firstName || 'Support Agent';
+    const reopenMsg = `Hi again, ${agentName} here. I've reopened your ticket. How can I assist you further?`;
+
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
-      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel, content: `[System: Ticket Reopened by Agent ${agentName}]` });
+      
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { 
+        ticketId: selectedTicket.$id, senderType: 'AGENT', senderName: agentName, 
+        sourceChannel: selectedTicket.sourceChannel, content: reopenMsg 
+      });
+
+      // Notify user that chat is reopened
+      await notifyExternalChannel(selectedTicket, reopenMsg, agentName);
       fetchTickets(); 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -136,7 +212,20 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const agentName = user.firstName || 'Support Agent';
-      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: isInternalNote ? 'SYSTEM' : 'AGENT', senderName: isInternalNote ? 'Internal Note' : agentName, sourceChannel: selectedTicket.sourceChannel, content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent });
+      
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { 
+        ticketId: selectedTicket.$id, 
+        senderType: isInternalNote ? 'SYSTEM' : 'AGENT', 
+        senderName: isInternalNote ? 'Internal Note' : agentName, 
+        sourceChannel: selectedTicket.sourceChannel, 
+        content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent 
+      });
+
+      // ONLY push to WhatsApp/Email if it's NOT an internal note!
+      if (!isInternalNote) {
+        await notifyExternalChannel(selectedTicket, replyContent, agentName);
+      }
+
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
