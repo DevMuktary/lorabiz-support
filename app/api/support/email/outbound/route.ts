@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendZeptoMail } from '@/lib/zeptomail';
+import { sendBrevoMail } from '@/lib/brevo';
 import { templates } from '@/lib/email-templates';
 
 export async function POST(req: Request) {
@@ -19,29 +20,27 @@ export async function POST(req: Request) {
       case 'AGENT_REPLY':
         subject = `Re: Your LoraBiz Support Request [${ticketId}]`;
         htmlBody = templates.agentReply(customerName, content, agentName);
-        break;
-        
-      case 'OTP':
-        subject = `Your LoraBiz Verification Code`;
-        htmlBody = templates.otpVerification(customerName, content);
+        // Send via Brevo
+        await sendBrevoMail({ toEmail, toName: customerName, subject, htmlBody });
         break;
         
       case 'AUTO_RESPONDER':
         subject = `Request Received [${ticketId}]`;
         htmlBody = templates.autoResponder(customerName, ticketId);
+        // Send via Brevo
+        await sendBrevoMail({ toEmail, toName: customerName, subject, htmlBody });
+        break;
+
+      case 'OTP':
+        subject = `Your LoraBiz Verification Code`;
+        htmlBody = templates.otpVerification(customerName, content);
+        // Send via ZeptoMail (High Deliverability Transactional)
+        await sendZeptoMail({ toEmail, toName: customerName, subject, htmlBody });
         break;
 
       default:
         return NextResponse.json({ error: 'Invalid email type specified' }, { status: 400 });
     }
-
-    // Execute the mail sender
-    await sendZeptoMail({
-      toEmail,
-      toName: customerName,
-      subject,
-      htmlBody
-    });
 
     return NextResponse.json({ status: 'SUCCESS' });
   } catch (error: any) {
