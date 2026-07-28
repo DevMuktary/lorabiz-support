@@ -17,8 +17,8 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   
   const [loading, setLoading] = useState(false);
-  const [isPageLoading, setIsPageLoading] = useState(true); // Initial load state
-  const [isFetchingChat, setIsFetchingChat] = useState(false); // Switching chats state
+  const [isPageLoading, setIsPageLoading] = useState(true); 
+  const [isFetchingChat, setIsFetchingChat] = useState(false); 
   
   const [isCustomerTyping, setIsCustomerTyping] = useState(false);
   const [businessStatus, setBusinessStatus] = useState({ isOnline: true, message: '' });
@@ -33,10 +33,13 @@ export default function DashboardPage() {
     try {
       const response = await databases.listDocuments(dbId, ticketsCol, [Query.orderDesc('$createdAt')]);
       setTickets(response.documents as unknown as Ticket[]);
-      if (selectedTicket) {
-        const updated = response.documents.find(t => t.$id === selectedTicket.$id);
-        if (updated) setSelectedTicket(updated as unknown as Ticket);
-      }
+      
+      // Update selected ticket data WITHOUT changing the object reference if we don't need to
+      setSelectedTicket((prev) => {
+        if (!prev) return null;
+        const updated = response.documents.find(t => t.$id === prev.$id);
+        return updated ? (updated as unknown as Ticket) : prev;
+      });
     } catch (err) { console.error(err); } finally {
       setIsPageLoading(false);
     }
@@ -75,13 +78,17 @@ export default function DashboardPage() {
 
     initSecureSession();
     return () => unsubscribeTickets();
-  }, [user, dbId, ticketsCol, selectedTicket]);
+  }, [user, dbId, ticketsCol]); // Removed selectedTicket to prevent loop
+
+  // BUG FIX: Only track the ID so it doesn't infinite-loop when the ticket object updates!
+  const activeTicketId = selectedTicket?.$id;
 
   useEffect(() => {
-    if (!selectedTicket || !user) return;
-    fetchMessages(selectedTicket.$id);
+    if (!activeTicketId || !user) return;
+    fetchMessages(activeTicketId);
+    
     const unsubscribeMessages = client.subscribe(`databases.${dbId}.collections.${messagesCol}.documents`, (response: any) => {
-      if (response.events.includes('databases.*.collections.*.documents.*.create') && response.payload.ticketId === selectedTicket.$id) {
+      if (response.events.includes('databases.*.collections.*.documents.*.create') && response.payload.ticketId === activeTicketId) {
         setMessages((prev) => {
           if (prev.find((m) => m.$id === response.payload.$id)) return prev;
           return [...prev, response.payload as unknown as Message];
@@ -90,7 +97,7 @@ export default function DashboardPage() {
       }
     });
     return () => unsubscribeMessages();
-  }, [selectedTicket, dbId, messagesCol, user]);
+  }, [activeTicketId, dbId, messagesCol, user]);
 
   const handlePickTicket = async () => {
     if (!selectedTicket || !user) return;
