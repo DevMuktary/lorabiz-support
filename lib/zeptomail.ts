@@ -8,7 +8,7 @@ interface SendMailParams {
 export async function sendZeptoMail({ toEmail, toName, subject, htmlBody }: SendMailParams) {
   const zeptoMailToken = process.env.ZEPTOMAIL_API_KEY;
   const bounceAddress = process.env.ZEPTOMAIL_BOUNCE_ADDRESS;
-  const supportEmail = process.env.SUPPORT_EMAIL_ADDRESS || "support@lorabiz.com";
+  const supportEmail = process.env.ZEPTOMAIL_SENDER_EMAIL || "support@lorabiz.com";
   const supportName = process.env.SUPPORT_EMAIL_NAME || "LoraBiz Support";
   
   if (!zeptoMailToken) {
