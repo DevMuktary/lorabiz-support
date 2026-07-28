@@ -1,6 +1,7 @@
 import { Client, Databases, Storage, Query, ID } from 'node-appwrite';
 import { InputFile } from 'node-appwrite/file'; 
 import { processTicketWithAI } from '@/lib/ai';
+import { summarizeChatForAgent } from '@/lib/ai-summarizer'; // <--- IMPORT ADDED
 import { checkBusinessHours } from '@/lib/business-hours';
 import { sendZeptoMail } from '@/lib/zeptomail';
 import { templates } from '@/lib/email-templates';
@@ -166,7 +167,16 @@ export async function processWhatsAppMessage(body: any) {
     if (buttonId === 'agent_yes') {
       const hoursStatus = checkBusinessHours();
       const handoverMsg = hoursStatus.isOnline ? "You have been placed in the queue. An agent will be with you shortly." : hoursStatus.message;
-      await databases.updateDocument(dbId, ticketsCol, ticket!.$id, { status: 'PENDING_AGENT' });
+      
+      // 🚀 NEW: GENERATE SUMMARY ON BUTTON HANDOVER 🚀
+      const history = await databases.listDocuments(dbId, messagesCol, [Query.equal('ticketId', ticket!.$id), Query.orderAsc('$createdAt')]);
+      const transcript = history.documents.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
+      const summary = await summarizeChatForAgent(transcript);
+
+      await databases.updateDocument(dbId, ticketsCol, ticket!.$id, { 
+        status: 'PENDING_AGENT',
+        aiSummary: summary // <-- Save summary to DB
+      });
       await sendMetaText(customerPhone, handoverMsg);
       return;
     }
@@ -336,7 +346,15 @@ export async function processWhatsAppMessage(body: any) {
       const aiResponseText = await processTicketWithAI(ticket.$id, history.documents);
 
       if (aiResponseText.includes('[DIRECT_TRANSFER]')) {
-        await databases.updateDocument(dbId, ticketsCol, ticket.$id, { status: 'PENDING_AGENT' });
+        
+        // 🚀 NEW: GENERATE SUMMARY ON DIRECT TRANSFER 🚀
+        const transcript = history.documents.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
+        const summary = await summarizeChatForAgent(transcript);
+
+        await databases.updateDocument(dbId, ticketsCol, ticket.$id, { 
+          status: 'PENDING_AGENT',
+          aiSummary: summary // <-- Save summary to DB
+        });
         
         await databases.createDocument(dbId, messagesCol, ID.unique(), {
           ticketId: ticket.$id, senderType: 'SYSTEM', senderName: 'System', content: "[System: Customer explicitly requested human agent]"
