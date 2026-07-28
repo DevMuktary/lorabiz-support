@@ -3,9 +3,9 @@ import { sendZeptoMail } from '@/lib/zeptomail';
 import { templates } from '@/lib/email-templates';
 import { generateAndSaveOTP, verifyOTP } from '@/lib/otp-service';
 import { sendWhatsAppText, sendWhatsAppOTPRequest } from '@/lib/whatsapp';
+import { isWithinBusinessHours, OUT_OF_HOURS_MESSAGE } from '@/lib/business-hours';
 
 export async function GET(req: Request) {
-  // Meta API Verification (Unchanged)
   const { searchParams } = new URL(req.url);
   if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === process.env.WHATSAPP_VERIFY_TOKEN) {
     return new NextResponse(searchParams.get('hub.challenge'), { status: 200 });
@@ -44,11 +44,11 @@ export async function POST(req: Request) {
           return NextResponse.json({ status: 'SUCCESS' });
         }
 
-        // SCENARIO 2: User sent text (Email OR 6-Digit Code)
+        // SCENARIO 2: User sent text 
         if (message.type === 'text') {
           const incomingText = message.text.body.trim();
 
-          // A. User sent an Email Address
+          // A. User sent an Email Address (Automated - runs 24/7)
           if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(incomingText)) {
             const customerEmail = incomingText;
             const otpCode = await generateAndSaveOTP(phoneNumber, customerEmail);
@@ -64,13 +64,12 @@ export async function POST(req: Request) {
             return NextResponse.json({ status: 'SUCCESS' });
           }
 
-          // B. User sent a 6-Digit Code
+          // B. User sent a 6-Digit Code (Automated - runs 24/7)
           if (/^\d{6}$/.test(incomingText)) {
             const result = await verifyOTP(phoneNumber, incomingText);
 
             if (result.success) {
               await sendWhatsAppText(phoneNumber, `✅ Verification successful! Your account (${result.email}) is now linked.`);
-              // TODO: Link the user's WhatsApp number to their profile in Appwrite
             } else if (result.reason === 'EXPIRED') {
               await sendWhatsAppText(phoneNumber, `❌ That code has expired. Please request a new one.`);
             } else if (result.reason === 'MAX_ATTEMPTS') {
@@ -80,6 +79,16 @@ export async function POST(req: Request) {
             }
             return NextResponse.json({ status: 'SUCCESS' });
           }
+
+          // C. User sent a general message (Human Support - respects business hours)
+          if (!isWithinBusinessHours()) {
+            await sendWhatsAppText(phoneNumber, OUT_OF_HOURS_MESSAGE);
+            return NextResponse.json({ status: 'SUCCESS', action: 'OUT_OF_HOURS_REPLY' });
+          }
+
+          // If within business hours, pass the message to Appwrite tickets/agents
+          // TODO: Logic to append standard message to Appwrite thread
+          console.log(`[WHATSAPP] Valid working hours message from ${phoneNumber}: ${incomingText}`);
         }
       }
     }
