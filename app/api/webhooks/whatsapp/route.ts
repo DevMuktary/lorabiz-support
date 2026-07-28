@@ -44,20 +44,46 @@ export async function POST(req: Request) {
         const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
         // ==========================================
-        // NEW: OTP INTERCEPT LOGIC
+        // SECURITY INTERCEPTS (OTP & EDIT DETAILS)
         // ==========================================
         
-        // Handle "Resend OTP" button click
         if (message.type === 'interactive' && message.interactive.type === 'button_reply') {
           const buttonId = message.interactive.button_reply.id;
+          
+          // 1. Handle "Edit Details" (Resend Onboarding Flow)
+          if (buttonId === 'edit_flow_details') {
+             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+              method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messaging_product: "whatsapp", recipient_type: "individual", to: customerPhone.replace("+", ""),
+                type: "interactive",
+                interactive: {
+                  type: "flow",
+                  header: { type: "text", text: "Update Your Details" },
+                  body: { text: "Please provide your correct details below." },
+                  footer: { text: "Secure Verification" },
+                  action: {
+                    name: "flow",
+                    parameters: {
+                      flow_message_version: "3", flow_token: `onboarding_retry_${Date.now()}`, flow_id: process.env.FLOW_ID, 
+                      flow_cta: "Submit Details", flow_action: "navigate", flow_action_payload: { screen: "ONBOARDING_SCREEN" }
+                    }
+                  }
+                }
+              })
+            });
+            return NextResponse.json({ success: true });
+          }
+
+          // 2. Handle "Resend OTP"
           if (buttonId.startsWith('resend_otp_')) {
             const emailToResend = buttonId.replace('resend_otp_', '');
             const otpCode = await generateAndSaveOTP(customerPhone, emailToResend);
             
-            await sendZeptoMail({
+            sendZeptoMail({
               toEmail: emailToResend, toName: customerName,
               subject: 'Your New LoraBiz Verification Code', htmlBody: templates.otpVerification(customerName, otpCode)
-            });
+            }).catch(e => console.error("[SILENT EMAIL FAIL]", e));
             
             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
@@ -65,8 +91,13 @@ export async function POST(req: Request) {
                 messaging_product: "whatsapp", to: customerPhone.replace("+", ""), type: "interactive",
                 interactive: {
                   type: 'button',
-                  body: { text: `We just sent a new 6-digit code to ${emailToResend}.\n\nPlease reply with the code to verify your account.` },
-                  action: { buttons: [{ type: 'reply', reply: { id: `resend_otp_${emailToResend}`, title: 'Resend OTP' } }] }
+                  body: { text: `We just sent a new 6-digit code to ${emailToResend}.\n\nPlease reply with the code to verify your account. If you made a mistake typing your email, click below to edit your details.` },
+                  action: { 
+                    buttons: [
+                      { type: 'reply', reply: { id: `resend_otp_${emailToResend}`, title: 'Resend OTP' } },
+                      { type: 'reply', reply: { id: `edit_flow_details`, title: 'Edit Details' } }
+                    ] 
+                  }
                 }
               })
             });
@@ -74,19 +105,18 @@ export async function POST(req: Request) {
           }
         }
 
-        // Handle text containing an Email Address or 6-Digit Code
         if (message.type === 'text') {
           const incomingText = message.text.body.trim();
 
-          // A. Is it an Email Address?
+          // 3. Handle raw Email Address text
           if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(incomingText)) {
             const customerEmail = incomingText;
             const otpCode = await generateAndSaveOTP(customerPhone, customerEmail);
             
-            await sendZeptoMail({
+            sendZeptoMail({
               toEmail: customerEmail, toName: customerName,
               subject: 'Your LoraBiz Verification Code', htmlBody: templates.otpVerification(customerName, otpCode)
-            });
+            }).catch(e => console.error("[SILENT EMAIL FAIL]", e));
 
             await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
@@ -94,15 +124,20 @@ export async function POST(req: Request) {
                 messaging_product: "whatsapp", to: customerPhone.replace("+", ""), type: "interactive",
                 interactive: {
                   type: 'button',
-                  body: { text: `We just sent a 6-digit verification code to ${customerEmail}.\n\nPlease reply with the code to verify your account.` },
-                  action: { buttons: [{ type: 'reply', reply: { id: `resend_otp_${customerEmail}`, title: 'Resend OTP' } }] }
+                  body: { text: `We just sent a 6-digit verification code to ${customerEmail}.\n\nPlease reply with the code to verify your account. If you made a mistake typing your email, click below to edit your details.` },
+                  action: { 
+                    buttons: [
+                      { type: 'reply', reply: { id: `resend_otp_${customerEmail}`, title: 'Resend OTP' } },
+                      { type: 'reply', reply: { id: `edit_flow_details`, title: 'Edit Details' } }
+                    ] 
+                  }
                 }
               })
             });
             return NextResponse.json({ success: true });
           }
 
-          // B. Is it a 6-Digit Code?
+          // 4. Handle 6-Digit Code text
           if (/^\d{6}$/.test(incomingText)) {
             const result = await verifyOTP(customerPhone, incomingText);
             let replyMessage = "";
@@ -121,7 +156,7 @@ export async function POST(req: Request) {
         }
 
         // ==========================================
-        // RESTORED: YOUR ORIGINAL LOGIC
+        // CORE TICKET LOGIC (MEDIA, FLOWS, AI)
         // ==========================================
         
         let content = '';
@@ -157,7 +192,7 @@ export async function POST(req: Request) {
             if (buttonId === 'agent_yes') {
               content = '[Clicked: Connect to Agent]';
               isButtonReplyYes = true;
-            } else {
+            } else if (buttonId === 'agent_no') {
               content = '[Clicked: No Agent Needed]';
             }
           } 
@@ -167,6 +202,33 @@ export async function POST(req: Request) {
                 flowData = JSON.parse(message.interactive.nfm_reply.response_json);
                 content = `[Flow Submitted] Topic: ${flowData.service_topic.split('_').slice(1).join(' ')}`;
                 customerName = flowData.customer_name || customerName;
+
+                // AUTOMATIC SECURE OTP FIRING
+                const customerEmail = flowData.customer_email;
+                const otpCode = await generateAndSaveOTP(customerPhone, customerEmail);
+                
+                sendZeptoMail({
+                  toEmail: customerEmail, toName: customerName,
+                  subject: 'Your LoraBiz Verification Code', htmlBody: templates.otpVerification(customerName, otpCode)
+                }).catch(e => console.error("[SILENT EMAIL FAIL]", e));
+
+                await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+                  method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    messaging_product: "whatsapp", to: customerPhone.replace("+", ""), type: "interactive",
+                    interactive: {
+                      type: 'button',
+                      body: { text: `We just sent a 6-digit verification code to ${customerEmail}.\n\nPlease reply with the code to verify your account. If you made a mistake typing your email, click below to edit your details.` },
+                      action: { 
+                        buttons: [
+                          { type: 'reply', reply: { id: `resend_otp_${customerEmail}`, title: 'Resend OTP' } },
+                          { type: 'reply', reply: { id: `edit_flow_details`, title: 'Edit Details' } } 
+                        ] 
+                      }
+                    }
+                  })
+                });
+
              } catch (e) {
                 content = '[Flow Data Received]';
              }
@@ -175,10 +237,11 @@ export async function POST(req: Request) {
           content = message.text?.body || '';
         }
 
-        // --- 2. TICKET MANAGEMENT ---
+        // --- 2. TICKET MANAGEMENT (WITH CRON TRACKING) ---
         const existingTickets = await databases.listDocuments(dbId, ticketsCol, [
           Query.equal('customerPhone', customerPhone),
           Query.notEqual('status', 'CLOSED'), 
+          Query.notEqual('status', 'RESOLVED'),
           Query.orderDesc('$createdAt'),
           Query.limit(1)
         ]);
@@ -190,9 +253,12 @@ export async function POST(req: Request) {
         if (existingTickets.documents.length > 0) {
           ticketId = existingTickets.documents[0].$id;
           currentStatus = isButtonReplyYes ? 'PENDING_AGENT' : existingTickets.documents[0].status;
+          
           await databases.updateDocument(dbId, ticketsCol, ticketId, { 
             lastMessage: content,
-            status: currentStatus 
+            status: currentStatus,
+            lastActivityAt: new Date().toISOString(), // Reset Cron timer
+            warningSent: false                        // Reset Cron warning
           });
         } else {
           isFirstContact = true;
@@ -200,7 +266,9 @@ export async function POST(req: Request) {
             customerPhone: customerPhone,
             sourceChannel: 'WHATSAPP',
             status: isButtonReplyYes ? 'PENDING_AGENT' : 'AI_HANDLING',
-            lastMessage: content
+            lastMessage: content,
+            lastActivityAt: new Date().toISOString(), // Start Cron timer
+            warningSent: false
           });
           ticketId = newTicket.$id;
           currentStatus = newTicket.status;
@@ -221,7 +289,9 @@ export async function POST(req: Request) {
 
         // --- 4. THE AI BRAIN & BUTTON HANDLER ---
         if (isFirstContact && !isFlowSubmission) {
-            await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+            console.log(`[WHATSAPP] Attempting to send Flow to ${customerPhone}...`);
+            
+            const flowResponse = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
               method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 messaging_product: "whatsapp", recipient_type: "individual", to: customerPhone.replace("+", ""),
@@ -241,6 +311,11 @@ export async function POST(req: Request) {
                 }
               })
             });
+            
+            const flowResponseData = await flowResponse.json();
+            if (flowResponseData.error) {
+              console.error(`[META FLOW ERROR]`, flowResponseData);
+            }
             return NextResponse.json({ success: true }); 
         }
 
@@ -260,7 +335,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: true }); 
         }
 
-        if (currentStatus === 'AI_HANDLING') {
+        if (currentStatus === 'AI_HANDLING' && !isFlowSubmission) {
           const history = await databases.listDocuments(dbId, messagesCol, [
             Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt')
           ]);
