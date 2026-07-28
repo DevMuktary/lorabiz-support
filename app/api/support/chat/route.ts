@@ -78,7 +78,6 @@ export async function POST(req: Request) {
 
         const hoursStatus = checkBusinessHours();
 
-        // FIX: ONLY RUN TIMEOUT APOLOGIES IF IT IS CURRENTLY BUSINESS HOURS
         if (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline) {
           const timePending = Date.now() - new Date(ticket.$updatedAt).getTime();
           const is5MinPassed = timePending > 5 * 60 * 1000;
@@ -124,8 +123,17 @@ export async function POST(req: Request) {
       ticket = await databases.getDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId);
     } catch (e: any) {
       if (e.code === 404) {
-        const generatedTitle = sanitizedMessage.includes('[System: Customer Onboarded]') 
-          ? 'New Support Request' : (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage);
+        
+        // 🚀 THE FIX: Extract exact topic name dynamically
+        let generatedTitle = 'New Support Request';
+        if (sanitizedMessage.includes('[System: Customer Onboarded]')) {
+          const topicMatch = sanitizedMessage.match(/Topic:\s*([^\n]+)/);
+          if (topicMatch && topicMatch[1]) {
+            generatedTitle = topicMatch[1].trim();
+          }
+        } else {
+          generatedTitle = sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage;
+        }
 
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
             status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || '', userId: userId || null,
@@ -144,7 +152,6 @@ export async function POST(req: Request) {
         sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
     }, securePermissions);
 
-    // CRITICAL FIX: Reset the Cron Timers so the chat doesn't auto-close!
     await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
       lastMessage: isSystemOnboard ? '[Customer Onboarded]' : sanitizedMessage,
       lastActivityAt: new Date().toISOString(),
