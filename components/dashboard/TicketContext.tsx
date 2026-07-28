@@ -14,8 +14,15 @@ interface TicketContextProps {
 
 export default function TicketContext({ ticket, messages, loading, onPickTicket, onEndChat, onReopenTicket, onCloseMobile }: TicketContextProps) {
   
-  // Extract Verified Name from messages array
-  const realCustomerName = messages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName;
+  // Use aggressive filtering to guarantee we don't accidentally grab a system message name
+  const cleanMessages = messages.filter(msg => {
+    const text = msg.content || '';
+    if (msg.senderType?.toUpperCase() === 'SYSTEM') return false;
+    if (text.includes('[System:')) return false;
+    return true;
+  });
+
+  const realCustomerName = cleanMessages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName;
   const displayIdentifier = ticket.customerPhone || ticket.customerEmail || 'Anonymous User';
 
   return (
