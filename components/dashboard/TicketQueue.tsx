@@ -1,70 +1,114 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UserButton } from '@clerk/nextjs';
-import { Phone, Mail, MessageSquare, CheckCircle2, Bot } from 'lucide-react';
+import { Phone, Mail, MessageSquare, CheckCircle2, Bot, Moon } from 'lucide-react';
 import { Ticket } from '@/types/dashboard';
 
 interface TicketQueueProps {
   tickets: Ticket[];
   selectedTicket: Ticket | null;
   onSelectTicket: (ticket: Ticket) => void;
+  businessStatus: { isOnline: boolean; message: string };
 }
 
-export default function TicketQueue({ tickets, selectedTicket, onSelectTicket }: TicketQueueProps) {
+type FilterType = 'ALL' | 'WHATSAPP' | 'IN_APP' | 'EMAIL';
+
+export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, businessStatus }: TicketQueueProps) {
+  const [filter, setFilter] = useState<FilterType>('ALL');
+
+  const filteredTickets = tickets.filter(t => filter === 'ALL' || t.sourceChannel === filter);
+
   return (
-    <div className={`w-full md:w-[350px] lg:w-[400px] border-r border-gray-200 flex flex-col bg-white ${selectedTicket ? 'hidden md:flex' : 'flex'} shadow-[2px_0_10px_rgba(0,0,0,0.03)] z-10 shrink-0`}>
-      <header className="p-5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
+    <div className="w-full md:w-[360px] lg:w-[420px] h-full flex flex-col bg-[#050b1b] border-r border-white/10 z-10">
+      
+      {/* Header */}
+      <header className="p-5 border-b border-white/10 flex items-center justify-between bg-[#050b1b] shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-[#000000] flex items-center justify-center shadow-md">
-            <Bot className="w-4 h-4 text-[#8B2D75]" />
+          <div className="w-9 h-9 rounded-full bg-[#c82d75] flex items-center justify-center shadow-lg shadow-[#c82d75]/20">
+            <Bot className="w-5 h-5 text-white" />
           </div>
-          <h1 className="font-bold text-lg tracking-tight">Active Queue</h1>
+          <h1 className="font-extrabold text-lg text-white tracking-tight">Agent Hub</h1>
         </div>
-        <UserButton />
+        <div className="ring-2 ring-white/10 rounded-full">
+          <UserButton appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
+        </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#F8FAFC]">
-        {tickets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full opacity-50 space-y-4">
-            <CheckCircle2 className="w-12 h-12 text-gray-400" />
-            <p className="text-sm font-medium">Inbox is empty.</p>
+      {/* Offline Banner */}
+      {!businessStatus.isOnline && (
+        <div className="bg-[#131b33] border-b border-white/5 p-3 flex items-start gap-3 shrink-0">
+          <div className="bg-indigo-500/20 p-1.5 rounded-md mt-0.5">
+            <Moon className="w-4 h-4 text-indigo-400" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-gray-200">Outside Business Hours</h4>
+            <p className="text-[11px] text-gray-400 leading-snug mt-0.5">
+              You are officially closed for the day and expected to return by 9:00 AM. You can still manually reply to active tickets below.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Channel Tabs */}
+      <div className="px-4 py-3 border-b border-white/5 shrink-0 bg-[#050b1b]">
+        <div className="flex bg-[#0d152b] rounded-lg p-1 gap-1">
+          {['ALL', 'WHATSAPP', 'IN_APP', 'EMAIL'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setFilter(tab as FilterType)}
+              className={`flex-1 py-1.5 text-[10px] font-bold tracking-wider rounded-md transition-all ${
+                filter === tab 
+                  ? 'bg-[#c82d75] text-white shadow-md' 
+                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+              }`}
+            >
+              {tab.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Ticket List */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+        {filteredTickets.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full opacity-50 space-y-3">
+            <CheckCircle2 className="w-12 h-12 text-[#c82d75]/40" />
+            <p className="text-sm font-medium text-gray-400">No tickets found.</p>
           </div>
         ) : (
-          tickets.map((t) => (
+          filteredTickets.map((t) => (
             <div
               key={t.$id}
               onClick={() => onSelectTicket(t)}
-              className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+              className={`p-4 rounded-2xl border transition-all cursor-pointer group ${
                 selectedTicket?.$id === t.$id
-                  ? 'bg-black border-black text-white shadow-lg'
-                  : 'bg-white border-gray-100 hover:border-gray-300 hover:shadow-md text-slate-800'
+                  ? 'bg-[#0d152b] border-[#c82d75] shadow-[0_0_15px_rgba(200,45,117,0.15)]'
+                  : 'bg-[#0d152b]/50 border-white/5 hover:border-white/20 hover:bg-[#0d152b]'
               }`}
             >
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-bold flex items-center gap-2 truncate uppercase tracking-wider">
-                  {t.sourceChannel === 'WHATSAPP' && <Phone className={`w-3.5 h-3.5 ${selectedTicket?.$id === t.$id ? 'text-[#8B2D75]' : 'text-emerald-500'}`} />}
-                  {t.sourceChannel === 'EMAIL' && <Mail className={`w-3.5 h-3.5 ${selectedTicket?.$id === t.$id ? 'text-[#8B2D75]' : 'text-sky-500'}`} />}
-                  {t.sourceChannel === 'IN_APP' && <MessageSquare className={`w-3.5 h-3.5 ${selectedTicket?.$id === t.$id ? 'text-[#8B2D75]' : 'text-indigo-500'}`} />}
+                <span className="text-xs font-bold flex items-center gap-2 truncate uppercase tracking-wider text-gray-200">
+                  {t.sourceChannel === 'WHATSAPP' && <Phone className="w-3.5 h-3.5 text-[#25D366]" />}
+                  {t.sourceChannel === 'EMAIL' && <Mail className="w-3.5 h-3.5 text-sky-400" />}
+                  {t.sourceChannel === 'IN_APP' && <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />}
                   <span className="truncate">{t.customerPhone || t.customerEmail || `Ticket #${t.$id.slice(-4)}`}</span>
                 </span>
                 
                 <span
                   className={`text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-widest shrink-0 ${
                     t.status === 'PENDING_AGENT'
-                      ? 'bg-[#8B2D75] text-white animate-pulse'
+                      ? 'bg-[#c82d75] text-white animate-pulse'
                       : t.status === 'IN_PROGRESS'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
                       : t.status === 'CLOSED'
-                      ? 'bg-red-100 text-red-600'
-                      : selectedTicket?.$id === t.$id
-                      ? 'bg-white/20 text-white'
-                      : 'bg-gray-100 text-gray-600'
+                      ? 'bg-red-500/10 text-red-400 border border-red-500/10'
+                      : 'bg-white/5 text-gray-400'
                   }`}
                 >
                   {t.status.replace('_', ' ')}
                 </span>
               </div>
               <p className={`text-sm truncate font-medium ${selectedTicket?.$id === t.$id ? 'text-gray-300' : 'text-gray-500'}`}>
-                {t.status === 'PENDING_AGENT' ? 'Needs human assistance...' : t.status === 'CLOSED' ? 'Conversation ended.' : 'AI is handling conversation.'}
+                {t.status === 'PENDING_AGENT' ? 'Human assistance requested...' : t.lastMessage || 'AI is handling conversation.'}
               </p>
             </div>
           ))
