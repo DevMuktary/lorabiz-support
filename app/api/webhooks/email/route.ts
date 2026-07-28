@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Client, Databases, Query, ID, Permission, Role } from 'node-appwrite';
-import { sendBrevoMail } from '@/lib/brevo'; // <-- CHANGED TO BREVO
+import { sendBrevoMail } from '@/lib/brevo';
 import { templates } from '@/lib/email-templates';
 
 const client = new Client()
@@ -27,6 +27,10 @@ function cleanEmailBody(text: string) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
+    // --- THE GOLDMINE LOGS ---
+    console.log("=== INCOMING BREVO PAYLOAD ===");
+    console.log(JSON.stringify(body, null, 2));
 
     // Extracting data from Brevo's specific 'items' array
     const item = body.items && body.items.length > 0 ? body.items[0] : body;
@@ -115,7 +119,7 @@ export async function POST(req: Request) {
         content: cleanContent,
       }, securePermissions);
 
-      // 3. THE AUTO-RESPONDER (Sent via Brevo out!) <-- CHANGED TO BREVO
+      // 3. THE AUTO-RESPONDER (Sent via Brevo out!)
       try {
         await sendBrevoMail({
           toEmail: fromAddress,
