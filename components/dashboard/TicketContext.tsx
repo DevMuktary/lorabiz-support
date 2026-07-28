@@ -2,13 +2,14 @@ import React from 'react';
 import { Ticket } from '@/types/dashboard';
 import { Info, User, XCircle, RefreshCw, Phone, Mail, MessageSquare, Clock, X } from 'lucide-react';
 
+// THIS IS THE INTERFACE THAT NEEDED THE UPDATE
 interface TicketContextProps {
   ticket: Ticket;
   loading: boolean;
   onPickTicket: () => void;
   onEndChat: () => void;
   onReopenTicket: () => void;
-  onCloseMobile: () => void;
+  onCloseMobile: () => void; // <--- This fixes the build error!
 }
 
 export default function TicketContext({ ticket, loading, onPickTicket, onEndChat, onReopenTicket, onCloseMobile }: TicketContextProps) {
