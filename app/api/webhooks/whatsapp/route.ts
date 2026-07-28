@@ -3,7 +3,7 @@ import { sendZeptoMail } from '@/lib/zeptomail';
 import { templates } from '@/lib/email-templates';
 import { generateAndSaveOTP, verifyOTP } from '@/lib/otp-service';
 import { sendWhatsAppText, sendWhatsAppOTPRequest } from '@/lib/whatsapp';
-import { isWithinBusinessHours, OUT_OF_HOURS_MESSAGE } from '@/lib/business-hours';
+import { checkBusinessHours } from '@/lib/business-hours';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -81,8 +81,11 @@ export async function POST(req: Request) {
           }
 
           // C. User sent a general message (Human Support - respects business hours)
-          if (!isWithinBusinessHours()) {
-            await sendWhatsAppText(phoneNumber, OUT_OF_HOURS_MESSAGE);
+          const businessStatus = checkBusinessHours();
+          
+          if (!businessStatus.isOnline) {
+            // Sends the dynamic return-date message from your file
+            await sendWhatsAppText(phoneNumber, businessStatus.message);
             return NextResponse.json({ status: 'SUCCESS', action: 'OUT_OF_HOURS_REPLY' });
           }
 
