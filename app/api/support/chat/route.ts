@@ -128,7 +128,8 @@ export async function POST(req: Request) {
           ? 'New Support Request' : (sanitizedMessage.length > 30 ? sanitizedMessage.substring(0, 30) + '...' : sanitizedMessage);
 
         ticket = await databases.createDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
-            status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || '', userId: userId || null 
+            status: 'OPEN', sourceChannel: 'IN_APP', title: generatedTitle, customerEmail: customerEmail || '', userId: userId || null,
+            lastActivityAt: new Date().toISOString(), warningSent: false
         }, securePermissions);
       } else { 
         throw e; 
@@ -143,15 +144,19 @@ export async function POST(req: Request) {
         sourceChannel: 'IN_APP', content: sanitizedMessage, attachmentUrl: attachmentUrl || null 
     }, securePermissions);
 
+    // CRITICAL FIX: Reset the Cron Timers so the chat doesn't auto-close!
+    await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+      lastMessage: isSystemOnboard ? '[Customer Onboarded]' : sanitizedMessage,
+      lastActivityAt: new Date().toISOString(),
+      warningSent: false
+    });
+
     const hoursStatus = checkBusinessHours();
 
-    // FIX: AI STAYS QUIET IF HUMAN IS TYPING (IN_PROGRESS) OR IF IT IS QUEUED *DURING* BUSINESS HOURS
     if (ticket.status === 'IN_PROGRESS' || (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline)) {
       return NextResponse.json({ status: 'RECEIVED' });
     }
 
-    // IF WE REACH HERE: The ticket is either OPEN, or it's PENDING_AGENT *OUTSIDE* BUSINESS HOURS.
-    // The AI is allowed to process the message and continue the conversation!
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
       Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt'), Query.limit(50),
     ]);
@@ -162,9 +167,8 @@ export async function POST(req: Request) {
 
     let aiResponse = await processTicketWithAI(ticketId, formattedHistory);
 
-    if (aiResponse.includes('TRIGGER_HANDOVER')) {
+    if (aiResponse.includes('TRIGGER_HANDOVER') || aiResponse.includes('[DIRECT_TRANSFER]')) {
       if (ticket.status === 'PENDING_AGENT') {
-        // If the AI triggers handover AGAIN while already offline, it just reassures them.
         aiResponse = "I've already noted your request for our team! They will assist you as soon as we open. I'm still here if you want to keep chatting!";
       } else {
         const transcript = formattedHistory.map((m) => `${m.senderType}: ${m.content}`).join('\n');
