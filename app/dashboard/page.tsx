@@ -15,7 +15,11 @@ export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  
   const [loading, setLoading] = useState(false);
+  const [isPageLoading, setIsPageLoading] = useState(true); // Initial load state
+  const [isFetchingChat, setIsFetchingChat] = useState(false); // Switching chats state
+  
   const [isCustomerTyping, setIsCustomerTyping] = useState(false);
   const [businessStatus, setBusinessStatus] = useState({ isOnline: true, message: '' });
 
@@ -23,10 +27,7 @@ export default function DashboardPage() {
   const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
   const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
-  useEffect(() => {
-    // Check business hours on load
-    setBusinessStatus(checkBusinessHours());
-  }, []);
+  useEffect(() => { setBusinessStatus(checkBusinessHours()); }, []);
 
   const fetchTickets = async () => {
     try {
@@ -36,14 +37,19 @@ export default function DashboardPage() {
         const updated = response.documents.find(t => t.$id === selectedTicket.$id);
         if (updated) setSelectedTicket(updated as unknown as Ticket);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); } finally {
+      setIsPageLoading(false);
+    }
   };
 
   const fetchMessages = async (ticketId: string) => {
+    setIsFetchingChat(true);
     try {
       const response = await databases.listDocuments(dbId, messagesCol, [Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt')]);
       setMessages(response.documents as unknown as Message[]);
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); } finally {
+      setIsFetchingChat(false);
+    }
   };
 
   useEffect(() => {
@@ -92,10 +98,7 @@ export default function DashboardPage() {
     const agentName = user.firstName || 'Support Agent';
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
-      await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel,
-        content: `Hi, my name is ${agentName} and I will be supporting you today. Please give me a minute to review the chat.`,
-      });
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel, content: `Hi, my name is ${agentName} and I will be supporting you today. Please give me a minute to review the chat.` });
       fetchTickets();
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -105,10 +108,7 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'CLOSED', assignedAgentId: null });
-      await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel,
-        content: 'The human agent has closed this session. If you need further assistance, please start a new request.',
-      });
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel, content: 'The human agent has closed this session. If you need further assistance, please start a new request.' });
       fetchTickets(); 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -119,10 +119,7 @@ export default function DashboardPage() {
     const agentName = user.firstName || 'Support Agent';
     try {
       await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
-      await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel,
-        content: `[System: Ticket Reopened by Agent ${agentName}]`,
-      });
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel, content: `[System: Ticket Reopened by Agent ${agentName}]` });
       fetchTickets(); 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -132,29 +129,25 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const agentName = user.firstName || 'Support Agent';
-      await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: selectedTicket.$id, senderType: isInternalNote ? 'SYSTEM' : 'AGENT', 
-        senderName: isInternalNote ? 'Internal Note' : agentName, sourceChannel: selectedTicket.sourceChannel,
-        content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent,
-      });
+      await databases.createDocument(dbId, messagesCol, ID.unique(), { ticketId: selectedTicket.$id, senderType: isInternalNote ? 'SYSTEM' : 'AGENT', senderName: isInternalNote ? 'Internal Note' : agentName, sourceChannel: selectedTicket.sourceChannel, content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent });
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
+  if (isPageLoading) {
+    return (
+      <div className="h-screen w-full bg-[#050b1b] flex flex-col items-center justify-center space-y-4">
+        <div className="w-10 h-10 border-4 border-[#c82d75] border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-gray-400 text-sm font-bold tracking-widest uppercase">Connecting Workspace...</p>
+      </div>
+    );
+  }
+
   return (
-    // THE CORE DARK THEME BACKGROUND IS SET HERE
     <div className="flex h-screen bg-[#050b1b] text-white overflow-hidden font-sans">
-      
-      {/* MOBILE FIX: Hide queue if a ticket is selected on small screens */}
       <div className={`h-full ${selectedTicket ? 'hidden md:flex' : 'flex w-full md:w-auto'} shrink-0`}>
-        <TicketQueue 
-          tickets={tickets} 
-          selectedTicket={selectedTicket} 
-          onSelectTicket={setSelectedTicket}
-          businessStatus={businessStatus}
-        />
+        <TicketQueue tickets={tickets} selectedTicket={selectedTicket} onSelectTicket={setSelectedTicket} businessStatus={businessStatus} />
       </div>
       
-      {/* MOBILE FIX: Hide chat area if NO ticket is selected on small screens */}
       <div className={`h-full flex-1 ${!selectedTicket ? 'hidden md:flex' : 'flex w-full'}`}>
         {!selectedTicket ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-500 bg-[#050b1b]">
@@ -167,6 +160,7 @@ export default function DashboardPage() {
            <ChatArea 
              ticket={selectedTicket}
              messages={messages}
+             isFetchingChat={isFetchingChat}
              isCustomerTyping={isCustomerTyping}
              loading={loading}
              onBack={() => setSelectedTicket(null)}
