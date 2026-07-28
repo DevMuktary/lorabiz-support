@@ -19,7 +19,7 @@ const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID!;
 const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID!;
 const bucketId = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID!;
 
-// HELPER FUNCTION: To send simple WhatsApp text
+// Helper to send text messages
 async function sendMetaText(phone: string, text: string) {
   await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
     method: "POST", headers: { "Authorization": `Bearer ${process.env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
@@ -55,7 +55,6 @@ export async function processWhatsAppMessage(body: any) {
   // ==========================================
   if (!ticket) {
     if (message.type !== 'interactive' || message.interactive?.type !== 'nfm_reply') {
-      // Force them to the flow. Don't process AI or text.
       await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
         method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -81,18 +80,28 @@ export async function processWhatsAppMessage(body: any) {
   }
 
   // ==========================================
+  // RESET CRON TIMERS FOR ACTIVE TICKETS
+  // ==========================================
+  if (ticket) {
+    await databases.updateDocument(dbId, ticketsCol, ticket.$id, {
+      lastActivityAt: new Date().toISOString(),
+      warningSent: false
+    });
+  }
+
+  // ==========================================
   // BUTTON CLICKS (EDIT DETAILS, RESEND OTP, AGENT HANDOFF)
   // ==========================================
   if (message.type === 'interactive' && message.interactive.type === 'button_reply') {
     const buttonId = message.interactive.button_reply.id;
 
-    // Reject Edit/Resend if they are already verified (prevents scrolling up to old messages)
+    // Reject Edit/Resend if they are already verified
     if ((buttonId === 'edit_flow_details' || buttonId.startsWith('resend_otp_')) && ticket?.status !== 'ONBOARDING') {
       return; 
     }
 
     if (buttonId === 'edit_flow_details') {
-       await invalidateAllOTPs(customerPhone); // Security: Kill old OTPs instantly
+       await invalidateAllOTPs(customerPhone); 
        
        await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
         method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
@@ -128,7 +137,6 @@ export async function processWhatsAppMessage(body: any) {
 
       const otpCode = otpResponse.code!;
       
-      // Only send ZeptoMail if it's a NEW code. If reused, save API limits.
       if (!otpResponse.reused) {
         sendZeptoMail({
           toEmail: emailToResend, toName: customerName,
@@ -165,7 +173,7 @@ export async function processWhatsAppMessage(body: any) {
   }
 
   // ==========================================
-  // FLOW SUBMISSION (NFM_REPLY)
+  // FLOW SUBMISSION
   // ==========================================
   if (message.type === 'interactive' && message.interactive.type === 'nfm_reply') {
      try {
@@ -176,24 +184,31 @@ export async function processWhatsAppMessage(body: any) {
         const parsedTopic = (flowData.service_topic || '').includes('_') ? flowData.service_topic.split('_').slice(1).join(' ') : (flowData.service_topic || 'General Support');
         const systemMessage = `[System: Customer Onboarded]\nName: ${customerName}\nEmail: ${customerEmail}\nTopic: ${parsedTopic}\nDescription: ${flowData.issue_description}`;
 
-        // 1. Create or Update Ticket to ONBOARDING
+        // Create or Update Ticket to ONBOARDING
         let ticketId = '';
         if (ticket) {
           ticketId = ticket.$id;
-          await databases.updateDocument(dbId, ticketsCol, ticketId, { status: 'ONBOARDING', lastMessage: `[Flow Submitted] Topic: ${parsedTopic}` });
+          await databases.updateDocument(dbId, ticketsCol, ticketId, { 
+            status: 'ONBOARDING', 
+            lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`,
+            lastActivityAt: new Date().toISOString(),
+            warningSent: false
+          });
         } else {
           const newTicket = await databases.createDocument(dbId, ticketsCol, ID.unique(), {
-            customerPhone, sourceChannel: 'WHATSAPP', status: 'ONBOARDING', lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`
+            customerPhone, sourceChannel: 'WHATSAPP', status: 'ONBOARDING', 
+            lastMessage: `[Flow Submitted] Topic: ${parsedTopic}`,
+            lastActivityAt: new Date().toISOString(), warningSent: false
           });
           ticketId = newTicket.$id;
         }
 
-        // Save Flow details to DB so AI can read it later
+        // Save Flow details
         await databases.createDocument(dbId, messagesCol, ID.unique(), {
           ticketId, senderType: 'SYSTEM', senderName: 'System', content: systemMessage
         });
 
-        // 2. Generic Message to prevent User Enumeration
+        // Anti-Enumeration Generic Message
         await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
           method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -211,7 +226,7 @@ export async function processWhatsAppMessage(body: any) {
           })
         });
 
-        // 3. Silent Verification on Main App
+        // Silent Verification
         const mainAppUrl = process.env.MAIN_APP_URL?.replace(/\/$/, ""); 
         const verifyRes = await fetch(`${mainAppUrl}/api/internal/verify-user`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -219,9 +234,9 @@ export async function processWhatsAppMessage(body: any) {
         });
         const verifyData = await verifyRes.json();
 
-        if (!verifyRes.ok || !verifyData.exists) return; // Silent stop
+        if (!verifyRes.ok || !verifyData.exists) return; 
 
-        // 4. Generate & Send Real OTP
+        // Generate & Send OTP
         const otpResponse = await handleOTPRequest(customerPhone, customerEmail, false);
         if (!otpResponse.success) return; 
 
@@ -238,26 +253,20 @@ export async function processWhatsAppMessage(body: any) {
   }
 
   // ==========================================
-  // TEXT & MEDIA PROCESSING
+  // TEXT & MEDIA PROCESSING (ONBOARDING)
   // ==========================================
   if (ticket?.status === 'ONBOARDING') {
-     // User is unverified. Protect AI tokens. ONLY check for 6 digits.
      if (message.type === 'text' && /^\d{6}$/.test(message.text.body.trim())) {
         const result = await verifyOTP(customerPhone, message.text.body.trim());
         
         if (result.success) {
-          // 1. Session-Only Success Message
           await sendMetaText(customerPhone, `✅ Verification successful!\n\nYour account is verified for this current session. For security reasons, you will be required to verify again in future support sessions.`);
-          
-          // 2. Upgrade ticket to AI_HANDLING
           await databases.updateDocument(dbId, ticketsCol, ticket.$id, { status: 'AI_HANDLING' });
 
-          // 3. Trigger Post-Verification AI Acknowledgment based on Flow Data
           const history = await databases.listDocuments(dbId, messagesCol, [
             Query.equal('ticketId', ticket.$id), Query.orderAsc('$createdAt')
           ]);
 
-          // We pass a hidden system prompt to make the AI reply immediately to their flow issue
           const aiContext = [...history.documents, {
             senderType: 'SYSTEM', senderName: 'System', 
             content: "SYSTEM DIRECTIVE: The user has just successfully verified their email. Look at the [System: Customer Onboarded] message above, and send a helpful, professional first response addressing their specific Topic and Description."
@@ -277,34 +286,62 @@ export async function processWhatsAppMessage(body: any) {
           await sendMetaText(customerPhone, errorMsg);
         }
      } else {
-        // Any other text sent during Onboarding is politely blocked.
         await sendMetaText(customerPhone, "Please complete your email verification first by entering the 6-digit code.");
      }
      return;
   }
 
   // ==========================================
-  // FULL AI CHAT (POST-VERIFICATION ONLY)
+  // FULL AI CHAT (POST-VERIFICATION)
   // ==========================================
   if (ticket && ticket.status === 'AI_HANDLING') {
       let content = message.text?.body || '';
+      let attachmentUrl = null;
 
       if (message.type === 'image' || message.type === 'document') {
         content = '[Attachment Received]';
-        // Add attachment upload logic here if needed
+        let mediaId = message.type === 'image' ? message.image.id : message.document.id;
+        let filename = message.type === 'image' ? `img_${Date.now()}.jpg` : (message.document.filename || `doc_${Date.now()}`);
+
+        if (mediaId && metaToken) {
+          try {
+            const mediaUrlRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, { headers: { "Authorization": `Bearer ${metaToken}` } });
+            const mediaData = await mediaUrlRes.json();
+            if (mediaData.url) {
+              const fileDownloadRes = await fetch(mediaData.url, { headers: { "Authorization": `Bearer ${metaToken}` } });
+              const arrayBuffer = await fileDownloadRes.arrayBuffer();
+              const upload = await storage.createFile(bucketId, ID.unique(), InputFile.fromBuffer(Buffer.from(arrayBuffer), filename));
+              attachmentUrl = `${process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT}/storage/buckets/${bucketId}/files/${upload.$id}/view?project=${process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID}`;
+            }
+          } catch (mediaError) {
+            content = '[Attachment Failed to Upload]';
+          }
+        }
       }
 
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: ticket.$id, senderType: 'CUSTOMER', senderName: customerName, content
+        ticketId: ticket.$id, senderType: 'CUSTOMER', senderName: customerName, content, attachmentUrl
       });
 
+      // Query limit 100 ensures AI remembers flow details
       const history = await databases.listDocuments(dbId, messagesCol, [
-        Query.equal('ticketId', ticket.$id), Query.orderAsc('$createdAt')
+        Query.equal('ticketId', ticket.$id), Query.orderAsc('$createdAt'), Query.limit(100)
       ]);
 
       const aiResponseText = await processTicketWithAI(ticket.$id, history.documents);
 
-      if (aiResponseText.includes('TRIGGER_HANDOVER')) {
+      if (aiResponseText.includes('[DIRECT_TRANSFER]')) {
+        await databases.updateDocument(dbId, ticketsCol, ticket.$id, { status: 'PENDING_AGENT' });
+        
+        await databases.createDocument(dbId, messagesCol, ID.unique(), {
+          ticketId: ticket.$id, senderType: 'SYSTEM', senderName: 'System', content: "[System: Customer explicitly requested human agent]"
+        });
+
+        const hoursStatus = checkBusinessHours();
+        const handoverMsg = hoursStatus.isOnline ? "I am transferring you to a human agent now. Please hold on..." : hoursStatus.message;
+        await sendMetaText(customerPhone, handoverMsg);
+      } 
+      else if (aiResponseText.includes('TRIGGER_HANDOVER')) {
         await databases.createDocument(dbId, messagesCol, ID.unique(), {
           ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', content: "[System: Offered human agent transfer to customer]"
         });
@@ -316,12 +353,13 @@ export async function processWhatsAppMessage(body: any) {
             type: "interactive",
             interactive: {
               type: "button",
-              body: { text: "I'm sorry, I don't have the exact information for that. Would you like me to connect you to an available agent?" },
+              body: { text: "I'm not entirely sure about that. Would you like me to connect you to an available human agent?" },
               action: { buttons: [ { type: "reply", reply: { id: "agent_yes", title: "Yes" } }, { type: "reply", reply: { id: "agent_no", title: "No" } } ] }
             }
           })
         });
-      } else {
+      } 
+      else {
         await databases.createDocument(dbId, messagesCol, ID.unique(), {
           ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', content: aiResponseText
         });
