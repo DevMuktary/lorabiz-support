@@ -5,7 +5,22 @@ import { sendWhatsAppText } from '@/lib/whatsapp';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
-  // Optional: Add a simple secret header check here so random people can't trigger your cron
+  // ==========================================
+  // SECURITY GATE: Prevent unauthorized triggers
+  // ==========================================
+  const url = new URL(req.url);
+  const querySecret = url.searchParams.get('secret'); // Checks ?secret=...
+  
+  const authHeader = req.headers.get('authorization');
+  const headerSecret = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null; // Checks Authorization: Bearer ...
+
+  const providedSecret = querySecret || headerSecret;
+
+  if (providedSecret !== process.env.CRON_SECRET) {
+    console.warn(`[SECURITY WARNING] Unauthorized attempt to trigger cron job`);
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // ==========================================
 
   const client = new Client()
     .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
