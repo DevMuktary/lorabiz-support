@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { storage } from '@/lib/appwrite-client';
-import { ID, Permission, Role } from 'appwrite';
+import { ID } from 'appwrite';
 
 const BUCKET_ID = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID || 'attachments';
 
@@ -50,10 +50,12 @@ export default function SupportWidget() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   
   const [dialog, setDialog] = useState<CustomDialog | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Refs for tracking state inside background polls without triggering infinite loops
   const isOpenRef = useRef(isOpen);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
 
@@ -62,6 +64,10 @@ export default function SupportWidget() {
 
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
+
+  // Track messages in a ref for accurate unread counting
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useEffect(() => {
     const initFromUrl = async () => {
@@ -112,26 +118,23 @@ export default function SupportWidget() {
         const data = await res.json();
         
         if (data.messages) {
-          setMessages(prev => {
-             const prevIds = new Set(prev.map(m => m.$id));
-             
-             const newMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id));
-             const newReplies = newMsgs.filter((m: any) => m.senderType === 'AGENT' || m.senderType === 'ASSISTANT');
-             
-             // 🚀 THE FIX: Smart Unread Counter Logic 🚀
-             if (!isOpenRef.current && data.messages.length > 0) {
-                 if (prev.length === 0) {
-                     // Initial load check: Is the very last message unread?
-                     const lastMsg = data.messages[data.messages.length - 1];
-                     if (lastMsg && (lastMsg.senderType === 'AGENT' || lastMsg.senderType === 'ASSISTANT')) {
-                         setUnreadCount(1);
-                     }
-                 } else if (newReplies.length > 0) {
-                     // Background poll update
-                     setUnreadCount(count => count + newReplies.length);
-                 }
-             }
+          const prevIds = new Set(messagesRef.current.map(m => m.$id));
+          const newMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id));
+          const newReplies = newMsgs.filter((m: any) => m.senderType !== 'CUSTOMER');
+          
+          // 🚀 THE FIX: Smart Unread Counter Logic 🚀
+          if (!isOpenRef.current && data.messages.length > 0) {
+              if (messagesRef.current.length === 0) {
+                  const lastMsg = data.messages[data.messages.length - 1];
+                  if (lastMsg && lastMsg.senderType !== 'CUSTOMER') {
+                      setUnreadCount(1);
+                  }
+              } else if (newReplies.length > 0) {
+                  setUnreadCount(count => count + newReplies.length);
+              }
+          }
 
+          setMessages(prev => {
              const serverIds = new Set(data.messages.map((m: any) => m.$id));
              const inFlight = prev.filter(m => !serverIds.has(m.$id) && m.senderType === 'CUSTOMER');
              return [...data.messages, ...inFlight];
@@ -141,17 +144,8 @@ export default function SupportWidget() {
           
           if (data.ticketStatus) {
             if (data.ticketStatus === 'CLOSED') {
-               clearInterval(intervalId);
-               
-               const currentTicket = historyTicketsRef.current.find(t => t.$id === activeTicketId);
-               if (currentTicket && currentTicket.status !== 'CLOSED' && viewRef.current === 'CHAT') {
-                 setDialog({
-                   isOpen: true, type: 'alert', title: 'Chat Closed', 
-                   message: 'This conversation has been securely closed by our support team or due to inactivity.'
-                 });
-                 setView('HUB');
-                 setActiveTicketId(null);
-               }
+               clearInterval(intervalId); // Stop polling
+               // REMOVED: The forced kick-out so the user can read the final closing message.
             }
 
             setHistoryTickets(prev => {
@@ -166,7 +160,7 @@ export default function SupportWidget() {
       }
     };
     
-    fetchChatHistory();
+    fetchChatHistory(); // Always fetch instantly when a ticket is clicked
     intervalId = setInterval(fetchChatHistory, 3000); 
     
     return () => clearInterval(intervalId);
@@ -286,7 +280,8 @@ export default function SupportWidget() {
     if (selectedFile) {
       setIsUploading(true);
       try {
-        const upload = await storage.createFile(BUCKET_ID, ID.unique(), selectedFile, [Permission.read(Role.team('agents'))]);
+        // 🚀 THE FIX: Removed Role.team('agents') so it successfully uploads using default permissions!
+        const upload = await storage.createFile(BUCKET_ID, ID.unique(), selectedFile);
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
         setDialog({ isOpen: true, type: 'alert', title: 'Upload Failed', message: 'There was an error attaching your file. Please try again.' });
@@ -313,6 +308,17 @@ export default function SupportWidget() {
 
   return (
     <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none">
+      
+      {/* 🚀 IMAGE LIGHTBOX MODAL 🚀 */}
+      {lightboxImage && (
+        <div className="fixed inset-0 z-[100000] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in pointer-events-auto" onClick={() => setLightboxImage(null)}>
+          <button className="absolute top-6 right-6 text-white/50 hover:text-white bg-white/10 p-2 rounded-full transition-colors">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+          <img src={lightboxImage} alt="Enlarged Attachment" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+        </div>
+      )}
+
       {isOpen && (
         <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5 relative overscroll-contain">
           
@@ -323,20 +329,12 @@ export default function SupportWidget() {
                 <p className="text-[14px] text-gray-600 mb-6 leading-relaxed">{dialog.message}</p>
                 <div className="flex justify-end gap-3">
                   {dialog.type === 'confirm' && (
-                    <button 
-                      onClick={() => setDialog(null)}
-                      className="px-4 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
-                    >
-                      Cancel
-                    </button>
+                    <button onClick={() => setDialog(null)} className="px-4 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
                   )}
                   <button 
                     onClick={() => {
-                      if (dialog.type === 'confirm' && dialog.onConfirm) {
-                        dialog.onConfirm();
-                      } else {
-                        setDialog(null);
-                      }
+                      if (dialog.type === 'confirm' && dialog.onConfirm) { dialog.onConfirm(); } 
+                      else { setDialog(null); }
                     }}
                     className="px-5 py-2.5 text-[13px] font-bold text-white bg-[#000000] hover:bg-gray-800 rounded-xl transition-transform active:scale-95"
                   >
@@ -360,12 +358,7 @@ export default function SupportWidget() {
             
             <div className="flex items-center space-x-2">
               {view === 'CHAT' && !isViewingClosedTicket && !isChatLoading && (
-                <button 
-                  onClick={handleEndChat} 
-                  className="text-[12px] font-bold bg-[#333333] hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm"
-                >
-                  End Chat
-                </button>
+                <button onClick={handleEndChat} className="text-[12px] font-bold bg-[#333333] hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm">End Chat</button>
               )}
               <button onClick={() => toggleWidget(false)} className="text-gray-300 hover:text-white p-1 ml-1">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -378,9 +371,7 @@ export default function SupportWidget() {
                <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center p-2 shadow-sm border border-gray-100 animate-pulse">
                   <img src="/support.png" alt="Loading" className="w-full h-full object-contain opacity-70" />
                </div>
-               <div className="text-center animate-pulse">
-                  <h2 className="text-[17px] font-bold text-gray-800">Connecting securely...</h2>
-               </div>
+               <div className="text-center animate-pulse"><h2 className="text-[17px] font-bold text-gray-800">Connecting securely...</h2></div>
                <div className="flex space-x-2 mt-2">
                   <div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce"></div><div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div><div className="w-2.5 h-2.5 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                </div>
@@ -419,14 +410,8 @@ export default function SupportWidget() {
                         </svg>
                         <span className="text-[14px] font-bold text-gray-800">WhatsApp</span>
                       </a>
-                      <a 
-                        href="mailto:support@lorabiz.com" 
-                        target="_top"
-                        className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto cursor-pointer relative z-10"
-                      >
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
+                      <a href="mailto:support@lorabiz.com" target="_top" className="flex-1 bg-white border border-gray-200 p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors pointer-events-auto cursor-pointer relative z-10">
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                         <span className="text-[14px] font-bold text-gray-800">Email</span>
                       </a>
                     </div>
@@ -437,11 +422,7 @@ export default function SupportWidget() {
                       <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Previous Conversations</h3>
                       <div className="space-y-2 max-h-[160px] overflow-y-auto overscroll-contain pr-1">
                         {closedTickets.map(ticket => (
-                          <button 
-                            key={ticket.$id}
-                            onClick={() => handleOpenHistory(ticket.$id)}
-                            className="w-full text-left bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors flex flex-col gap-1"
-                          >
+                          <button key={ticket.$id} onClick={() => handleOpenHistory(ticket.$id)} className="w-full text-left bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors flex flex-col gap-1">
                             <span className="font-bold text-[14px] text-gray-800 truncate">{ticket.title || 'Support Request'}</span>
                             <span className="text-[12px] font-medium text-gray-500">Closed • {new Date(ticket.$createdAt).toLocaleDateString()}</span>
                           </button>
@@ -475,21 +456,11 @@ export default function SupportWidget() {
                   <form onSubmit={handleOnboardingSubmit} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
-                      <input 
-                        required type="text" value={userDetails.name} onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} 
-                        readOnly={!!authUserId} 
-                        className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} 
-                        placeholder="John Doe" 
-                      />
+                      <input required type="text" value={userDetails.name} onChange={(e) => setUserDetails({...userDetails, name: e.target.value})} readOnly={!!authUserId} className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} placeholder="John Doe" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Registered Email</label>
-                      <input 
-                        required type="email" value={userDetails.email} onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} 
-                        readOnly={!!authUserId} 
-                        className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} 
-                        placeholder="john@example.com" 
-                      />
+                      <input required type="email" value={userDetails.email} onChange={(e) => setUserDetails({...userDetails, email: e.target.value})} readOnly={!!authUserId} className={`w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none ${authUserId ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} placeholder="john@example.com" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Select a Service</label>
@@ -508,9 +479,7 @@ export default function SupportWidget() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Briefly describe your issue</label>
                       <textarea rows={2} value={userDetails.description} onChange={(e) => setUserDetails({...userDetails, description: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none resize-none" placeholder="How can we help?"></textarea>
                     </div>
-                    <button type="submit" className="w-full bg-[#000000] text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 transition-colors mt-2">
-                      Start Chat
-                    </button>
+                    <button type="submit" className="w-full bg-[#000000] text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 transition-colors mt-2">Start Chat</button>
                   </form>
                 </div>
               )}
@@ -520,15 +489,9 @@ export default function SupportWidget() {
                    
                    {isChatLoading ? (
                      <div className="flex-1 p-5 flex flex-col space-y-4">
-                       <div className="flex justify-start animate-pulse">
-                         <div className="bg-gray-200 w-2/3 h-12 rounded-2xl rounded-bl-sm"></div>
-                       </div>
-                       <div className="flex justify-end animate-pulse mt-4">
-                         <div className="bg-gray-300 w-1/2 h-10 rounded-2xl rounded-br-sm"></div>
-                       </div>
-                       <div className="flex justify-start animate-pulse mt-4">
-                         <div className="bg-gray-200 w-3/4 h-16 rounded-2xl rounded-bl-sm"></div>
-                       </div>
+                       <div className="flex justify-start animate-pulse"><div className="bg-gray-200 w-2/3 h-12 rounded-2xl rounded-bl-sm"></div></div>
+                       <div className="flex justify-end animate-pulse mt-4"><div className="bg-gray-300 w-1/2 h-10 rounded-2xl rounded-br-sm"></div></div>
+                       <div className="flex justify-start animate-pulse mt-4"><div className="bg-gray-200 w-3/4 h-16 rounded-2xl rounded-bl-sm"></div></div>
                      </div>
                    ) : (
                      <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-5 relative custom-scrollbar">
@@ -540,19 +503,39 @@ export default function SupportWidget() {
                             if (msg.content.includes('[System: Customer Onboarded]')) return null;
                             return (
                               <div key={msg.$id} className="text-center my-3">
-                                <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">
-                                   {msg.content}
-                                </span>
+                                <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">{msg.content}</span>
                               </div>
                             );
                           }
 
                           return (
                             <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed shadow-sm ${
-                                  isUser ? 'bg-[#000000] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'
-                                }`}>
-                                {msg.attachmentUrl && <img src={msg.attachmentUrl} alt="Attachment" className="mb-2 max-w-full rounded-lg object-cover max-h-[200px]" />}
+                              <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed shadow-sm ${isUser ? 'bg-[#000000] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
+                                
+                                {/* 🚀 ATTACHMENT RENDERER WITH PDF FALLBACK 🚀 */}
+                                {msg.attachmentUrl && (
+                                  <div className="mb-2">
+                                    <img 
+                                      src={msg.attachmentUrl} 
+                                      alt="Attachment" 
+                                      className="max-w-full rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity max-h-[200px] object-cover" 
+                                      onClick={() => setLightboxImage(msg.attachmentUrl!)}
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                      }}
+                                    />
+                                    <a 
+                                      href={msg.attachmentUrl} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer" 
+                                      className="hidden flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors text-gray-800 border border-gray-200"
+                                    >
+                                      📄 View Document
+                                    </a>
+                                  </div>
+                                )}
+
                                 {msg.content && <span>{msg.content}</span>}
                               </div>
                             </div>
@@ -591,14 +574,7 @@ export default function SupportWidget() {
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                           </button>
                           
-                          <input 
-                             type="text" 
-                             value={inputText} 
-                             onChange={(e) => setInputText(e.target.value)} 
-                             onFocus={scrollToBottom} 
-                             placeholder="Message..." 
-                             className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000] min-w-0" 
-                          />
+                          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onFocus={scrollToBottom} placeholder="Message..." className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000] min-w-0" />
                           
                           <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0">
                             {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
@@ -620,9 +596,9 @@ export default function SupportWidget() {
         >
           <img src="/support.png" alt="Support" className="w-full h-full object-cover rounded-full" />
           
-          {/* UNREAD BADGE INDICATOR */}
+          {/* 🚀 THE FIX: Dynamic Unread Number Badge 🚀 */}
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 border-2 border-white rounded-full shadow-md flex items-center justify-center text-[10px] font-bold text-white animate-bounce">
+            <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 border-2 border-white rounded-full shadow-md flex items-center justify-center text-[11px] font-extrabold text-white animate-bounce">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
