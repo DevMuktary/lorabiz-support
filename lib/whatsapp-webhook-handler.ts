@@ -1,7 +1,7 @@
 import { Client, Databases, Storage, Query, ID } from 'node-appwrite';
 import { InputFile } from 'node-appwrite/file'; 
 import { processTicketWithAI } from '@/lib/ai';
-import { summarizeChatForAgent } from '@/lib/ai-summarizer'; // <--- IMPORT ADDED
+import { summarizeChatForAgent } from '@/lib/ai-summarizer'; 
 import { checkBusinessHours } from '@/lib/business-hours';
 import { sendZeptoMail } from '@/lib/zeptomail';
 import { templates } from '@/lib/email-templates';
@@ -164,20 +164,32 @@ export async function processWhatsAppMessage(body: any) {
       return;
     }
 
+    // 🚀 FIX: Log the customer's "Yes" to the database so the Agent sees it!
     if (buttonId === 'agent_yes') {
+      await databases.createDocument(dbId, messagesCol, ID.unique(), {
+        ticketId: ticket!.$id, senderType: 'CUSTOMER', senderName: customerName, sourceChannel: 'WHATSAPP', content: "Yes, connect me to an agent."
+      });
+
       const hoursStatus = checkBusinessHours();
       const handoverMsg = hoursStatus.isOnline ? "You have been placed in the queue. An agent will be with you shortly." : hoursStatus.message;
       
-      // 🚀 NEW: GENERATE SUMMARY ON BUTTON HANDOVER 🚀
       const history = await databases.listDocuments(dbId, messagesCol, [Query.equal('ticketId', ticket!.$id), Query.orderAsc('$createdAt')]);
       const transcript = history.documents.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
       const summary = await summarizeChatForAgent(transcript);
 
       await databases.updateDocument(dbId, ticketsCol, ticket!.$id, { 
-        status: 'PENDING_AGENT',
-        aiSummary: summary // <-- Save summary to DB
+        status: 'PENDING_AGENT', aiSummary: summary, lastMessage: "Requested human agent" 
       });
       await sendMetaText(customerPhone, handoverMsg);
+      return;
+    }
+
+    // 🚀 FIX: Log the customer's "No" to the database
+    if (buttonId === 'agent_no') {
+      await databases.createDocument(dbId, messagesCol, ID.unique(), {
+        ticketId: ticket!.$id, senderType: 'CUSTOMER', senderName: customerName, sourceChannel: 'WHATSAPP', content: "No"
+      });
+      await sendMetaText(customerPhone, "Okay, no problem! Feel free to ask me any other questions.");
       return;
     }
   }
@@ -189,11 +201,10 @@ export async function processWhatsAppMessage(body: any) {
      try {
         const flowData = JSON.parse(message.interactive.nfm_reply.response_json);
         const customerEmail = flowData.customer_email;
-        customerName = flowData.customer_name || customerName; // Temporary fallback
+        customerName = flowData.customer_name || customerName; 
 
         const parsedTopic = (flowData.service_topic || '').includes('_') ? flowData.service_topic.split('_').slice(1).join(' ') : (flowData.service_topic || 'General Support');
 
-        // 1. Anti-Enumeration Generic Message (Instantly sent to prevent guessing)
         await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
           method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -211,7 +222,6 @@ export async function processWhatsAppMessage(body: any) {
           })
         });
 
-        // 2. Silent Verification on Main App
         const mainAppUrl = process.env.MAIN_APP_URL?.replace(/\/$/, ""); 
         const verifyRes = await fetch(`${mainAppUrl}/api/internal/verify-user`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -219,14 +229,12 @@ export async function processWhatsAppMessage(body: any) {
         });
         const verifyData = await verifyRes.json();
 
-        if (!verifyRes.ok || !verifyData.exists) return; // Silent Stop
+        if (!verifyRes.ok || !verifyData.exists) return; 
 
-        // 3. STRICT OVERRIDE: Replace typed name with Official DB Name
         if (verifyData.name) {
            customerName = verifyData.name;
         }
 
-        // 4. Create/Update Ticket & Save System Message
         const systemMessage = `[System: Customer Onboarded]\nName: ${customerName}\nEmail: ${customerEmail}\nTopic: ${parsedTopic}\nDescription: ${flowData.issue_description}`;
         let ticketId = '';
         
@@ -248,10 +256,9 @@ export async function processWhatsAppMessage(body: any) {
         }
 
         await databases.createDocument(dbId, messagesCol, ID.unique(), {
-          ticketId, senderType: 'SYSTEM', senderName: 'System', content: systemMessage
+          ticketId, senderType: 'SYSTEM', senderName: 'System', sourceChannel: 'WHATSAPP', content: systemMessage
         });
 
-        // 5. Generate & Send OTP using the Verified Name
         const otpResponse = await handleOTPRequest(customerPhone, customerEmail, false);
         if (!otpResponse.success) return; 
 
@@ -290,7 +297,7 @@ export async function processWhatsAppMessage(body: any) {
           const aiResponseText = await processTicketWithAI(ticket.$id, aiContext as any);
 
           await databases.createDocument(dbId, messagesCol, ID.unique(), {
-            ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', content: aiResponseText
+            ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', sourceChannel: 'WHATSAPP', content: aiResponseText
           });
           
           await sendMetaText(customerPhone, aiResponseText);
@@ -307,9 +314,11 @@ export async function processWhatsAppMessage(body: any) {
   }
 
   // ==========================================
-  // FULL AI CHAT (POST-VERIFICATION)
+  // 🚀 FIX: FULL CHAT FEED (AI_HANDLING, PENDING_AGENT, IN_PROGRESS)
   // ==========================================
-  if (ticket && ticket.status === 'AI_HANDLING') {
+  if (ticket && ['AI_HANDLING', 'PENDING_AGENT', 'IN_PROGRESS'].includes(ticket.status)) {
+      if (message.type === 'interactive') return; // Handled above in button clicks
+
       let content = message.text?.body || '';
       let attachmentUrl = null;
 
@@ -334,59 +343,65 @@ export async function processWhatsAppMessage(body: any) {
         }
       }
 
+      // 1. ALWAYS SAVE THE CUSTOMER'S TEXT TO THE DB
+      // (This guarantees the agent sees it on their dashboard when chatting)
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: ticket.$id, senderType: 'CUSTOMER', senderName: customerName, content, attachmentUrl
+        ticketId: ticket.$id, senderType: 'CUSTOMER', senderName: customerName, sourceChannel: 'WHATSAPP', content, attachmentUrl
       });
 
-      // Query limit 100 ensures AI remembers flow details
-      const history = await databases.listDocuments(dbId, messagesCol, [
-        Query.equal('ticketId', ticket.$id), Query.orderAsc('$createdAt'), Query.limit(100)
-      ]);
+      await databases.updateDocument(dbId, ticketsCol, ticket.$id, {
+        lastMessage: content || '[Attachment sent]',
+        lastActivityAt: new Date().toISOString()
+      });
 
-      const aiResponseText = await processTicketWithAI(ticket.$id, history.documents);
+      // 2. ONLY GENERATE AN AI RESPONSE IF THE AI IS IN CONTROL
+      if (ticket.status === 'AI_HANDLING') {
+          const history = await databases.listDocuments(dbId, messagesCol, [
+            Query.equal('ticketId', ticket.$id), Query.orderAsc('$createdAt'), Query.limit(100)
+          ]);
 
-      if (aiResponseText.includes('[DIRECT_TRANSFER]')) {
-        
-        // 🚀 NEW: GENERATE SUMMARY ON DIRECT TRANSFER 🚀
-        const transcript = history.documents.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
-        const summary = await summarizeChatForAgent(transcript);
+          const aiResponseText = await processTicketWithAI(ticket.$id, history.documents);
 
-        await databases.updateDocument(dbId, ticketsCol, ticket.$id, { 
-          status: 'PENDING_AGENT',
-          aiSummary: summary // <-- Save summary to DB
-        });
-        
-        await databases.createDocument(dbId, messagesCol, ID.unique(), {
-          ticketId: ticket.$id, senderType: 'SYSTEM', senderName: 'System', content: "[System: Customer explicitly requested human agent]"
-        });
+          if (aiResponseText.includes('[DIRECT_TRANSFER]')) {
+            const transcript = history.documents.map((m: any) => `${m.senderType}: ${m.content}`).join('\n');
+            const summary = await summarizeChatForAgent(transcript);
 
-        const hoursStatus = checkBusinessHours();
-        const handoverMsg = hoursStatus.isOnline ? "I am transferring you to a human agent now. Please hold on..." : hoursStatus.message;
-        await sendMetaText(customerPhone, handoverMsg);
-      } 
-      else if (aiResponseText.includes('TRIGGER_HANDOVER')) {
-        await databases.createDocument(dbId, messagesCol, ID.unique(), {
-          ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', content: "[System: Offered human agent transfer to customer]"
-        });
-        
-        await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
-          method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messaging_product: "whatsapp", recipient_type: "individual", to: customerPhone.replace("+", ""),
-            type: "interactive",
-            interactive: {
-              type: "button",
-              body: { text: "I'm not entirely sure about that. Would you like me to connect you to an available human agent?" },
-              action: { buttons: [ { type: "reply", reply: { id: "agent_yes", title: "Yes" } }, { type: "reply", reply: { id: "agent_no", title: "No" } } ] }
-            }
-          })
-        });
-      } 
-      else {
-        await databases.createDocument(dbId, messagesCol, ID.unique(), {
-          ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', content: aiResponseText
-        });
-        await sendMetaText(customerPhone, aiResponseText);
+            await databases.updateDocument(dbId, ticketsCol, ticket.$id, { 
+              status: 'PENDING_AGENT', aiSummary: summary, lastMessage: "AI transferred to agent" 
+            });
+            
+            await databases.createDocument(dbId, messagesCol, ID.unique(), {
+              ticketId: ticket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: 'WHATSAPP', content: "[System: Customer explicitly requested human agent]"
+            });
+
+            const hoursStatus = checkBusinessHours();
+            const handoverMsg = hoursStatus.isOnline ? "I am transferring you to a human agent now. Please hold on..." : hoursStatus.message;
+            await sendMetaText(customerPhone, handoverMsg);
+          } 
+          else if (aiResponseText.includes('TRIGGER_HANDOVER')) {
+            await databases.createDocument(dbId, messagesCol, ID.unique(), {
+              ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', sourceChannel: 'WHATSAPP', content: "[System: Offered human agent transfer to customer]"
+            });
+            
+            await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+              method: "POST", headers: { "Authorization": `Bearer ${metaToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messaging_product: "whatsapp", recipient_type: "individual", to: customerPhone.replace("+", ""),
+                type: "interactive",
+                interactive: {
+                  type: "button",
+                  body: { text: "I'm not entirely sure about that. Would you like me to connect you to an available human agent?" },
+                  action: { buttons: [ { type: "reply", reply: { id: "agent_yes", title: "Yes" } }, { type: "reply", reply: { id: "agent_no", title: "No" } } ] }
+                }
+              })
+            });
+          } 
+          else {
+            await databases.createDocument(dbId, messagesCol, ID.unique(), {
+              ticketId: ticket.$id, senderType: 'AI', senderName: 'Lora Assistant', sourceChannel: 'WHATSAPP', content: aiResponseText
+            });
+            await sendMetaText(customerPhone, aiResponseText);
+          }
       }
   }
 }
