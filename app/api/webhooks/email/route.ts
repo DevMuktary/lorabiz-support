@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Client, Databases, Query, ID, Permission, Role } from 'node-appwrite';
-import { sendZeptoMail } from '@/lib/zeptomail';
+import { sendBrevoMail } from '@/lib/brevo'; // <-- CHANGED TO BREVO
 import { templates } from '@/lib/email-templates';
 
 const client = new Client()
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // THE BREVO FIX: Extracting data from Brevo's specific 'items' array
+    // Extracting data from Brevo's specific 'items' array
     const item = body.items && body.items.length > 0 ? body.items[0] : body;
     
     const fromAddress = item.From?.Address || item.from_address || item.from?.address;
@@ -115,16 +115,16 @@ export async function POST(req: Request) {
         content: cleanContent,
       }, securePermissions);
 
-      // 3. THE AUTO-RESPONDER (Sent via ZeptoMail out)
+      // 3. THE AUTO-RESPONDER (Sent via Brevo out!) <-- CHANGED TO BREVO
       try {
-        await sendZeptoMail({
+        await sendBrevoMail({
           toEmail: fromAddress,
           toName: finalCustomerName,
           subject: `Request Received [${newTicketId}]`,
           htmlBody: templates.autoResponder(finalCustomerName, newTicketId)
         });
       } catch (mailError) {
-        console.error(`[EMAIL WEBHOOK ERROR] Failed to send auto-responder:`, mailError);
+        console.error(`[EMAIL WEBHOOK ERROR] Failed to send auto-responder via Brevo:`, mailError);
       }
 
       return NextResponse.json({ status: 'SUCCESS', action: 'CREATED_NEW_TICKET', ticketId: newTicketId });
