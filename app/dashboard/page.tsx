@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { client, databases, account } from '@/lib/appwrite-client';
+import { client, databases, account, storage } from '@/lib/appwrite-client'; // <-- IMPORTED STORAGE
 import { Query, ID } from 'appwrite'; 
 import { Ticket, Message } from '@/types/dashboard';
 import { checkBusinessHours } from '@/lib/business-hours';
@@ -26,6 +26,7 @@ export default function DashboardPage() {
   const dbId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
   const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
   const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
+  const bucketId = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID || 'attachments'; // <-- ADDED BUCKET ID
 
   const activeTicketIdRef = useRef<string | null>(null);
   activeTicketIdRef.current = selectedTicket?.$id || null;
@@ -107,26 +108,24 @@ export default function DashboardPage() {
   }, [activeTicketId, dbId, messagesCol, user]);
 
   // ==========================================
-  // SMART OUTBOUND NOTIFICATIONS
+  // SMART OUTBOUND NOTIFICATIONS (NOW SUPPORTS ATTACHMENTS)
   // ==========================================
   const notifyExternalChannel = async (
     ticket: Ticket, 
     content: string, 
     agentName: string, 
-    actionType: 'REPLY' | 'GREETING' | 'CLOSE' | 'REOPEN'
+    actionType: 'REPLY' | 'GREETING' | 'CLOSE' | 'REOPEN',
+    attachmentUrl?: string | null
   ) => {
     try {
-      // In-App widget natively gets all messages, no ping needed here.
-      
       if (ticket.sourceChannel === 'WHATSAPP' && ticket.customerPhone) {
         await fetch('/api/support/outbound', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerPhone: ticket.customerPhone, content })
+          body: JSON.stringify({ customerPhone: ticket.customerPhone, content, attachmentUrl })
         });
       } 
       else if (ticket.sourceChannel === 'EMAIL' && ticket.customerEmail) {
-        // STRICT EMAIL RULE: Save quota by ignoring Greetings and Reopen messages
         if (actionType === 'GREETING' || actionType === 'REOPEN') return;
 
         const realName = messages.slice().reverse().find(m => m.senderType === 'CUSTOMER')?.senderName || 'Customer';
@@ -137,9 +136,10 @@ export default function DashboardPage() {
             toEmail: ticket.customerEmail,
             customerName: realName,
             type: 'AGENT_REPLY',
-            content,
+            content: content || 'Please see the attached document.',
             ticketId: ticket.$id,
-            agentName
+            agentName,
+            attachmentUrl
           })
         });
       }
@@ -208,22 +208,33 @@ export default function DashboardPage() {
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  const handleSendMessage = async (replyContent: string, isInternalNote: boolean = false) => {
-    if (!replyContent.trim() || !selectedTicket || !user) return;
+  // 🚀 UPDATED: NOW SUPPORTS FILE UPLOADS
+  const handleSendMessage = async (replyContent: string, isInternalNote: boolean = false, file: File | null = null) => {
+    if (!replyContent.trim() && !file) return;
+    if (!selectedTicket || !user) return;
     setLoading(true);
+    
     try {
       const agentName = user.firstName || 'Support Agent';
+      let attachmentUrl = null;
+
+      // Upload file directly using secure Admin permissions
+      if (file) {
+        const upload = await storage.createFile(bucketId, ID.unique(), file);
+        attachmentUrl = storage.getFileView(bucketId, upload.$id).toString();
+      }
       
       await databases.createDocument(dbId, messagesCol, ID.unique(), { 
         ticketId: selectedTicket.$id, 
         senderType: isInternalNote ? 'SYSTEM' : 'AGENT', 
         senderName: isInternalNote ? 'Internal Note' : agentName, 
         sourceChannel: selectedTicket.sourceChannel, 
-        content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent 
+        content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : (replyContent || '[Attachment sent]'),
+        attachmentUrl
       });
 
       if (!isInternalNote) {
-        await notifyExternalChannel(selectedTicket, replyContent, agentName, 'REPLY');
+        await notifyExternalChannel(selectedTicket, replyContent || '[Attachment]', agentName, 'REPLY', attachmentUrl);
       }
 
     } catch (err) { console.error(err); } finally { setLoading(false); }
