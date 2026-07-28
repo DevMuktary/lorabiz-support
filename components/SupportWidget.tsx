@@ -31,6 +31,7 @@ interface CustomDialog {
 
 export default function SupportWidget() {
   const [isOpen, setIsOpen] = useState(false);
+  const [hasUnread, setHasUnread] = useState(false); // NEW: Unread badge state
   const [view, setView] = useState<'HUB' | 'ONBOARDING' | 'CHAT'>('HUB');
   
   const [authUserId, setAuthUserId] = useState<string | null>(null);
@@ -52,6 +53,10 @@ export default function SupportWidget() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Keep track of isOpen state for the background polling interval
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
 
   useEffect(() => {
     const initFromUrl = async () => {
@@ -98,8 +103,17 @@ export default function SupportWidget() {
           body: JSON.stringify({ action: 'FETCH_HISTORY', ticketId: activeTicketId })
         });
         const data = await res.json();
+        
         if (data.messages) {
           setMessages(prev => {
+             const prevIds = new Set(prev.map(m => m.$id));
+             
+             // Detect if there are newly arrived messages that aren't from the customer
+             const newIncomingMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id) && m.senderType !== 'CUSTOMER');
+             if (newIncomingMsgs.length > 0 && !isOpenRef.current) {
+                 setHasUnread(true); // Trigger badge if widget is closed
+             }
+
              const serverIds = new Set(data.messages.map((m: any) => m.$id));
              const inFlight = prev.filter(m => !serverIds.has(m.$id) && m.senderType === 'CUSTOMER');
              return [...data.messages, ...inFlight];
@@ -113,7 +127,7 @@ export default function SupportWidget() {
                if (activeTicket && activeTicket.status !== 'CLOSED') {
                  setDialog({
                    isOpen: true, type: 'alert', title: 'Chat Closed', 
-                   message: 'This conversation has been securely closed by our support team.'
+                   message: 'This conversation has been securely closed by our support team or due to inactivity.'
                  });
                  setView('HUB');
                  setActiveTicketId(null);
@@ -130,23 +144,24 @@ export default function SupportWidget() {
       } catch (err) {}
     };
 
-    if (view === 'CHAT') {
+    const currentTicket = historyTickets.find(t => t.$id === activeTicketId);
+    
+    // Allow polling EVEN IF closed, so the Unread Badge can trigger
+    if (currentTicket?.status !== 'CLOSED') {
       fetchChatHistory();
-      const currentTicket = historyTickets.find(t => t.$id === activeTicketId);
-      if (currentTicket?.status !== 'CLOSED') {
-        const interval = setInterval(fetchChatHistory, 3000); 
-        return () => clearInterval(interval);
-      }
+      const interval = setInterval(fetchChatHistory, 3000); 
+      return () => clearInterval(interval);
     }
-  }, [activeTicketId, view, historyTickets]);
+  }, [activeTicketId, historyTickets, view]); 
 
   const scrollToBottom = () => {
     setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, 150);
   };
-  useEffect(() => { scrollToBottom(); }, [messages.length, isTyping, view]);
+  useEffect(() => { scrollToBottom(); }, [messages.length, isTyping, view, isOpen]);
 
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
+    if (newState) setHasUnread(false); // Clear badge when opened
     if (newState && !activeTicketId) setView('HUB');
     if (typeof window !== 'undefined' && window.parent) {
       window.parent.postMessage(newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', '*');
@@ -581,9 +596,14 @@ export default function SupportWidget() {
       <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
         <button
           onClick={() => toggleWidget(true)}
-          className="w-[65px] h-[65px] sm:w-[75px] sm:h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.25)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-[3px] bg-white border-[#8B2D75] overflow-hidden p-0"
+          className="relative w-[65px] h-[65px] sm:w-[75px] sm:h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.25)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-[3px] bg-white border-[#8B2D75] overflow-visible p-0"
         >
-          <img src="/support.png" alt="Support" className="w-full h-full object-cover" />
+          <img src="/support.png" alt="Support" className="w-full h-full object-cover rounded-full" />
+          
+          {/* UNREAD BADGE INDICATOR */}
+          {hasUnread && (
+            <span className="absolute top-0 right-0 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 border-2 border-white rounded-full shadow-md animate-pulse"></span>
+          )}
         </button>
       </div>
     </div>
