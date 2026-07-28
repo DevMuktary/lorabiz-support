@@ -5,8 +5,8 @@ import { useUser } from '@clerk/nextjs';
 import { client, databases, account } from '@/lib/appwrite-client';
 import { Query, ID } from 'appwrite'; 
 import { Ticket, Message } from '@/types/dashboard';
+import { checkBusinessHours } from '@/lib/business-hours';
 
-// We will build these two in the next step!
 import TicketQueue from '@/components/dashboard/TicketQueue';
 import ChatArea from '@/components/dashboard/ChatArea'; 
 
@@ -17,50 +17,42 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [isCustomerTyping, setIsCustomerTyping] = useState(false);
+  const [businessStatus, setBusinessStatus] = useState({ isOnline: true, message: '' });
 
   const dbId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID || 'lorabiz_support';
   const ticketsCol = process.env.NEXT_PUBLIC_APPWRITE_TICKETS_COLLECTION_ID || 'tickets';
   const messagesCol = process.env.NEXT_PUBLIC_APPWRITE_MESSAGES_COLLECTION_ID || 'messages';
 
-  // Fetch Tickets
+  useEffect(() => {
+    // Check business hours on load
+    setBusinessStatus(checkBusinessHours());
+  }, []);
+
   const fetchTickets = async () => {
     try {
-      const response = await databases.listDocuments(dbId, ticketsCol, [
-        Query.orderDesc('$createdAt'),
-      ]);
+      const response = await databases.listDocuments(dbId, ticketsCol, [Query.orderDesc('$createdAt')]);
       setTickets(response.documents as unknown as Ticket[]);
-      
       if (selectedTicket) {
         const updated = response.documents.find(t => t.$id === selectedTicket.$id);
         if (updated) setSelectedTicket(updated as unknown as Ticket);
       }
-    } catch (err) {
-      console.error('Error fetching tickets:', err);
-    }
+    } catch (err) { console.error(err); }
   };
 
-  // Fetch Messages
   const fetchMessages = async (ticketId: string) => {
     try {
-      const response = await databases.listDocuments(dbId, messagesCol, [
-        Query.equal('ticketId', ticketId),
-        Query.orderAsc('$createdAt'),
-      ]);
+      const response = await databases.listDocuments(dbId, messagesCol, [Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt')]);
       setMessages(response.documents as unknown as Message[]);
-    } catch (err) {
-      console.error('Error fetching messages:', err);
-    }
+    } catch (err) { console.error(err); }
   };
 
-  // Secure Appwrite Auth & Realtime Subscriptions
   useEffect(() => {
     if (!user) return;
     let unsubscribeTickets = () => {};
 
     const initSecureSession = async () => {
-      try {
-        await account.get();
-      } catch {
+      try { await account.get(); } 
+      catch {
         const res = await fetch('/api/auth/appwrite-token', { method: 'POST' });
         if (res.ok) {
           const { token } = await res.json();
@@ -69,15 +61,10 @@ export default function DashboardPage() {
       }
       
       fetchTickets();
-      unsubscribeTickets = client.subscribe(
-        `databases.${dbId}.collections.${ticketsCol}.documents`,
-        (response: any) => {
-          fetchTickets(); 
-          if (response.payload.$id === selectedTicket?.$id) {
-            setIsCustomerTyping(response.payload.customerTyping || false);
-          }
-        }
-      );
+      unsubscribeTickets = client.subscribe(`databases.${dbId}.collections.${ticketsCol}.documents`, (response: any) => {
+        fetchTickets(); 
+        if (response.payload.$id === selectedTicket?.$id) setIsCustomerTyping(response.payload.customerTyping || false);
+      });
     };
 
     initSecureSession();
@@ -87,36 +74,24 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!selectedTicket || !user) return;
     fetchMessages(selectedTicket.$id);
-    const unsubscribeMessages = client.subscribe(
-      `databases.${dbId}.collections.${messagesCol}.documents`,
-      (response: any) => {
-        if (
-          response.events.includes('databases.*.collections.*.documents.*.create') &&
-          response.payload.ticketId === selectedTicket.$id
-        ) {
-          setMessages((prev) => {
-            if (prev.find((m) => m.$id === response.payload.$id)) return prev;
-            return [...prev, response.payload as unknown as Message];
-          });
-          if (response.payload.senderType === 'CUSTOMER') setIsCustomerTyping(false);
-        }
+    const unsubscribeMessages = client.subscribe(`databases.${dbId}.collections.${messagesCol}.documents`, (response: any) => {
+      if (response.events.includes('databases.*.collections.*.documents.*.create') && response.payload.ticketId === selectedTicket.$id) {
+        setMessages((prev) => {
+          if (prev.find((m) => m.$id === response.payload.$id)) return prev;
+          return [...prev, response.payload as unknown as Message];
+        });
+        if (response.payload.senderType === 'CUSTOMER') setIsCustomerTyping(false);
       }
-    );
+    });
     return () => unsubscribeMessages();
   }, [selectedTicket, dbId, messagesCol, user]);
-
-  // -------------------------
-  // TICKET ACTIONS
-  // -------------------------
 
   const handlePickTicket = async () => {
     if (!selectedTicket || !user) return;
     setLoading(true);
     const agentName = user.firstName || 'Support Agent';
     try {
-      await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, {
-        status: 'IN_PROGRESS', assignedAgentId: user.id,
-      });
+      await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
         ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel,
         content: `Hi, my name is ${agentName} and I will be supporting you today. Please give me a minute to review the chat.`,
@@ -129,9 +104,7 @@ export default function DashboardPage() {
     if (!selectedTicket) return;
     setLoading(true);
     try {
-      await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, {
-        status: 'CLOSED', assignedAgentId: null, // Marks as closed instead of open
-      });
+      await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'CLOSED', assignedAgentId: null });
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
         ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel,
         content: 'The human agent has closed this session. If you need further assistance, please start a new request.',
@@ -140,15 +113,12 @@ export default function DashboardPage() {
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  // NEW FEATURE: Reopen Ticket
   const handleReopenTicket = async () => {
     if (!selectedTicket || !user) return;
     setLoading(true);
     const agentName = user.firstName || 'Support Agent';
     try {
-      await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, {
-        status: 'IN_PROGRESS', assignedAgentId: user.id,
-      });
+      await databases.updateDocument(dbId, ticketsCol, selectedTicket.$id, { status: 'IN_PROGRESS', assignedAgentId: user.id });
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
         ticketId: selectedTicket.$id, senderType: 'SYSTEM', senderName: 'System', sourceChannel: selectedTicket.sourceChannel,
         content: `[System: Ticket Reopened by Agent ${agentName}]`,
@@ -163,41 +133,50 @@ export default function DashboardPage() {
     try {
       const agentName = user.firstName || 'Support Agent';
       await databases.createDocument(dbId, messagesCol, ID.unique(), {
-        ticketId: selectedTicket.$id,
-        senderType: isInternalNote ? 'SYSTEM' : 'AGENT', // Note: We use SYSTEM for internal notes so the frontend widget hides them
-        senderName: isInternalNote ? 'Internal Note' : agentName, 
-        sourceChannel: selectedTicket.sourceChannel,
+        ticketId: selectedTicket.$id, senderType: isInternalNote ? 'SYSTEM' : 'AGENT', 
+        senderName: isInternalNote ? 'Internal Note' : agentName, sourceChannel: selectedTicket.sourceChannel,
         content: isInternalNote ? `[INTERNAL NOTE]: ${replyContent}` : replyContent,
       });
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans">
-      <TicketQueue 
-        tickets={tickets} 
-        selectedTicket={selectedTicket} 
-        onSelectTicket={setSelectedTicket} 
-      />
+    // THE CORE DARK THEME BACKGROUND IS SET HERE
+    <div className="flex h-screen bg-[#050b1b] text-white overflow-hidden font-sans">
       
-      {/* Fallback while we build ChatArea */}
-      {!selectedTicket ? (
-        <div className="flex-1 flex items-center justify-center text-gray-400 bg-white">
-          <p>Select a ticket to begin.</p>
-        </div>
-      ) : (
-         <ChatArea 
-           ticket={selectedTicket}
-           messages={messages}
-           isCustomerTyping={isCustomerTyping}
-           loading={loading}
-           onBack={() => setSelectedTicket(null)}
-           onPickTicket={handlePickTicket}
-           onEndChat={handleEndChat}
-           onReopenTicket={handleReopenTicket}
-           onSendMessage={handleSendMessage}
-         />
-      )}
+      {/* MOBILE FIX: Hide queue if a ticket is selected on small screens */}
+      <div className={`h-full ${selectedTicket ? 'hidden md:flex' : 'flex w-full md:w-auto'} shrink-0`}>
+        <TicketQueue 
+          tickets={tickets} 
+          selectedTicket={selectedTicket} 
+          onSelectTicket={setSelectedTicket}
+          businessStatus={businessStatus}
+        />
+      </div>
+      
+      {/* MOBILE FIX: Hide chat area if NO ticket is selected on small screens */}
+      <div className={`h-full flex-1 ${!selectedTicket ? 'hidden md:flex' : 'flex w-full'}`}>
+        {!selectedTicket ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-500 bg-[#050b1b]">
+            <div className="w-16 h-16 rounded-full bg-[#0d152b] flex items-center justify-center mb-4 border border-white/5">
+              <svg className="w-8 h-8 text-[#c82d75]/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+            </div>
+            <p className="text-sm tracking-wide">Select a ticket from the queue to begin.</p>
+          </div>
+        ) : (
+           <ChatArea 
+             ticket={selectedTicket}
+             messages={messages}
+             isCustomerTyping={isCustomerTyping}
+             loading={loading}
+             onBack={() => setSelectedTicket(null)}
+             onPickTicket={handlePickTicket}
+             onEndChat={handleEndChat}
+             onReopenTicket={handleReopenTicket}
+             onSendMessage={handleSendMessage}
+           />
+        )}
+      </div>
     </div>
   );
 }
