@@ -4,12 +4,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Allow the widget to be embedded in iframes on any domain
-        source: "/widget",
+        // Changed to /(.*) to ensure the CSP applies to all paths loaded inside the iframe
+        source: "/(.*)",
         headers: [
           {
             key: "Content-Security-Policy",
-            value: "frame-ancestors https://lorabiz.com;", // Change '*' to specific domains (e.g., 'https://yourwebsite.com') in production for better security
+            // Added localhost, subdomains, and Railway app for staging/dev compatibility
+            value: "frame-ancestors 'self' http://localhost:* https://lorabiz.com https://*.lorabiz.com https://*.railway.app;", 
           },
         ],
       },
