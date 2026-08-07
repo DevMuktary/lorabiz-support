@@ -1,14 +1,15 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
-// 1. Define public routes (Removed /sign-up from here!)
+// 1. Define public routes 
 const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/support/email/outbound',
   '/sign-in(.*)',
   '/api/cron(.*)',         // ALLOWS CRON JOB TO PASS
   '/api/internal(.*)',     // ALLOWS MAIN APP VERIFICATION TO PASS
-  '/api/support/chat(.*)'  // ALLOWS WEB WIDGET TO PASS
+  '/api/support/chat(.*)', // ALLOWS WEB WIDGET API TO PASS
+  '/widget(.*)'            // 🚨 ADD THIS: ALLOWS THE IFRAME UI TO PASS WITHOUT LOGIN
 ]);
 
 // 2. Explicitly target the sign-up route
