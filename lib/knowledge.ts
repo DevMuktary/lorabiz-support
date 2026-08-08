@@ -11,93 +11,106 @@ Our human support operating hours are Monday through Friday, 9:00 AM to 5:00 PM 
 The User Dashboard is divided into a main workspace and a sidebar navigation.
 
 ### Sidebar Navigation:
-**Main:**
-- **Service Hub** (/dashboard) - The main landing page showing quick access cards for all services and a quick-view of the wallet balance.
-- **Transactions** (/dashboard/transactions) - Complete ledger of all financial activities (funding and payments).
-- **Wallet** (/dashboard/wallet) - To view wallet balance, funding history, and add funds.
-- **Partner Program** (/dashboard/referrals) - The referral dashboard to track invites, earnings, and request bank cashouts.
-- **Pricing** (/dashboard/pricing) - View the current price list for all services.
-
-**Available Services:**
-- **CAC Services** (/dashboard/cac) - Business Name and LLC registrations.
-- **SCUML** (/dashboard/scuml) - Special Control Unit Against Money Laundering certificates.
-- **NIN Services** (/dashboard/tools/nin-slip) - Generate and download NIN slips.
-- **Airtime** (/dashboard/airtime) - Mobile airtime top-up for all major networks.
-- **Tax ID (TIN)** (/dashboard/tax-id) - Individual and corporate tax identification numbers.
-
-**Upcoming Services (Waitlist available):**
-- CAC Post Incorporation
-- Trademark (IPO)
-- SMEDAN
-- And more exciting services
-
-**Management:**
+- **Service Hub** (/dashboard) - Main landing page.
+- **Transactions** (/dashboard/transactions) - Complete financial ledger.
+- **Wallet** (/dashboard/wallet) - View balance, funding history, and add funds.
+- **Partner Program** (/dashboard/referrals) - Track invites, earnings, and cashouts.
+- **Pricing** (/dashboard/pricing) - Current price list for all services.
+- **Available Services:** CAC Services, SCUML, NIN Services, Airtime, Tax ID (TIN).
 - **Profile Settings** (/dashboard/settings) - Manage name, avatar, phone number, and password.
 
-## 3. ACCOUNT & AUTHENTICATION
-- **Registration**: Requires Name, Email, Phone, Address, and Password. Email verification via 6-digit OTP is mandatory before form submission.
-- **Login**: Requires Email and Password, followed by a mandatory 6-digit OTP sent to the email (2-Step Verification).
-- **Security**: Cloudflare Turnstile CAPTCHA is enforced on both login and registration to prevent bots.
-- **Upgrades**: LoraBiz currently uses a single "USER" tier for clients. Admin/Staff have separate portals protected by strict MFA.
+## 3. ACCOUNT, WALLET & PAYMENTS
+- **Authentication**: Email/Password + 6-digit OTP (2-Step Verification) + Cloudflare Turnstile.
+- **Wallet System**: Funded via Paystack (Min ₦100). Balance used to pay for services. No external transfers.
+- **Checkout Options**: "WALLET" (deducts from balance) or "ONLINE" (direct Paystack checkout). Promo codes are supported.
 
-## 4. WALLET & PAYMENTS
-- **Wallet System**: The platform uses an integrated wallet system. Users fund their wallet via Paystack and use the balance to pay for services.
-- **Funding**: Navigate to "Wallet" -> click "Fund Wallet". Enter an amount (Minimum ₦100) -> processed via Paystack.
-- **Checkout Options**: When paying for a service, users can use "WALLET" (deducts from balance) or "ONLINE" (direct Paystack checkout).
-- **Promo Codes**: Supported at checkout for percentage or fixed discounts.
-- **Transactions**: History is available at "Transactions". Credits appear in Green, Debits in default text. Users can view receipt details.
-- **No Withdrawals/Transfers**: The main wallet is strictly for platform services. Funds cannot be withdrawn or transferred to other users (Note: The Partner Program balance is separate and CAN be withdrawn).
+## 4. DETAILED SERVICE: CAC REGISTRATION (/dashboard/cac)
+This section contains the exact field-by-field guide for users stuck on the CAC registration forms.
 
-## 5. SERVICES DETAILED
+### A. BUSINESS NAME REGISTRATION - FIELD GUIDE
 
-### A. CAC Registration (/dashboard/cac)
-- **Types**: Business Name (Sole proprietor/Partnership), Limited Liability Company (LLC), NGO (Currently disabled/maintenance).
-- **Process**:
-  1. **Name Search**: Check availability of a proposed name.
-  2. **AI Category Assistant (LorabizAI)**: A chat assistant to help select the correct business category/nature.
-  3. **Forms**: Fill Company Info, Proprietor/Officer Info, Upload Documents (NIN, Passport, Signature).
-  4. **LLC Specifics**: Requires Share Capital distribution, Articles of Association, Objects, and PSC (Persons with Significant Control) declarations.
-- **Status Tracking**: Drafts (Unsubmitted) -> Pending -> Queried -> Approved.
-- **Queries**: If CAC queries an application, it moves to "Queried" status. Users can resolve this via the resolution wizard which outlines the reason and allows document/data updates.
-- **Processing Time**: 30 Mins - 1 Hour for Business Name; 24-72 Working Hours for LLC. Delays occasionally occur due to government processing backlogs.
+**Step 1: Company Details**
+- **Business Name**: (Auto-filled/Locked) The approved name from CAC.
+- **Nature of Business**: (Auto-filled/Locked) The category selected during the name search.
+- **Company Email**: Must be a valid email format.
+- **Business Commencement Date**: The exact date the business officially starts operating.
+- **State / City / Street No / Street Address**: The primary physical location of the business in Nigeria.
 
-### B. SCUML Certificate (/dashboard/scuml)
-- **Requirements**: CAC Certificate, Status Report, MEMART (for LLC), NGO Constitution (for NGO).
-- **Processing Time**: 24-72 hours, sometimes up to 4-5 working days.
-- **Tracking**: Check the "History" tab for status (Pending -> Processing -> Completed) and to download the final certificate.
+**Step 2: Proprietors**
+- **Surname / First Name / Other Name**: Legal names exactly as they appear on the user's ID.
+- **Email**: Valid email address.
+- **Phone Number**: Must be valid.
+- **Gender**: MALE or FEMALE.
+- **Date of Birth**: Used to calculate age. *Rule*: If under 18, the system will warn that CAC requires at least 2 adult partners to register with a minor.
+- **State / LGA / City / Street No / Service Address**: The residential address of the proprietor. 
+- *UX Rule*: Users MUST click "Save" to collapse a proprietor's card before the "+ Add New Proprietor" button will work.
 
-### C. Tax ID (TIN) (/dashboard/tax-id)
-- **Types**: Individual (Requires NIN) and Corporate (Requires CAC Number).
-- **Processing Time**: Typically within 30 minutes during working hours (9AM-5PM).
-- **Tracking**: Check the "History" tab. Completed TINs are prominently displayed and can be copied to clipboard.
+**Step 3: Document Uploads**
+- **NIN Card/Slip**: Accepts PDF, JPG, or PNG.
+- **Passport Photo**: Accepts JPG or PNG ONLY. Must be a perfect square. PDFs are strictly rejected.
+- **Signature**: Accepts JPG or PNG ONLY. Must be signed on plain white paper. PDFs are strictly rejected.
 
-### D. NIN Slip Generation (/dashboard/tools/nin-slip)
-- **Search By**: NIN or Phone Number linked to NIN.
-- **Slip Types**: Regular Slip (Standard long layout), Standard Biometric (Compact layout), Premium Card (Full-colour design for PVC printing).
-- **Delivery**: Instant PDF generation and auto-download upon successful payment.
+---
 
-### E. Airtime Top-up (/dashboard/airtime)
-- **Supported Networks**: MTN, Airtel, Glo, 9Mobile.
-- **Minimum Amount**: ₦50.
-- **Duplicate Guard**: Prevents accidental double recharges of the same amount to the same number within 10 minutes.
-- **Disputes**: A "Dispute" button is available in the history for failed transactions.
+### B. LIMITED LIABILITY COMPANY (LLC) REGISTRATION - FIELD GUIDE
 
-## 6. SETTINGS & PROFILE MANAGEMENT (/dashboard/settings)
-- **Avatar & Name**: Can be updated at any time.
-- **Email**: Cannot be changed after registration.
-- **Phone Number**: Can be updated, but triggers a 30-day security lock preventing further changes for 30 days.
-- **Password**: Can be updated via the provided modal.
+**Step 1: Company Information**
+- **Company Email**: Primary contact email for the business.
+- **Description of Business Activity**: A brief sentence describing what the company will actually do daily.
+- **Registered Office Address (State/LGA/City/Postal Code/House No/Street)**: The official, legal address of the company in Nigeria.
+- **Head Office Address**: Where day-to-day operations happen. Users can click the "Same as Registered Address" toggle to auto-fill this.
 
-## 7. PARTNER PROGRAM (REFERRALS)
-The Partner Program allows users to earn real cash by inviting others to LoraBiz. 
-- **Location**: Users access this via "Partner Program" (/dashboard/referrals).
-- **How it Works**: The user copies their unique referral link and shares it. 
-- **Referee Benefit**: Anyone who signs up using a referral link automatically receives a 5% discount on their first major service via an exclusive Welcome Promo Code shown on their dashboard.
-- **Referrer Earning**: When the invited user successfully completes a paid service, a fixed cash reward is instantly deposited into the referrer's "Available Balance." Earnings are strictly per-service and require the service to be officially approved/completed by the admin.
-- **Payouts**: Referrers must bind their Nigerian bank account (10-digit NUBAN). The bank account name MUST match their registered LoraBiz name. Once they reach the minimum withdrawal limit, they can request a direct cashout to their bank.
-- **Rules**: Self-referrals and fraudulent accounts are strictly prohibited and will result in permanent suspension.
+**Step 2: Articles & Memorandum**
+- **Objects of Memorandum**: Defines the company's legal purpose. *Instruction*: Users should start the text with "To carry on the business of..." and list specific activities.
+- **Articles of Association**: Internal rules. Users can click "Use CAMA Defaults" to automatically load standard Nigerian corporate rules, or add custom clauses (Requires Part, Title, and Content).
+- **Details of Witness**: A third party must witness the articles. 
+  - *Rule*: The witness MUST be at least 18 years old and CANNOT be a director or shareholder of the company. Requires their Name, DOB, Gender, Occupation, Email, Phone, and Residential Address.
 
-## 8. SUPPORT & ISSUE RESOLUTION
-- For payment issues, users should check the "Transactions" ledger to see if a transaction failed. 
-- For failed wallet funding or urgent inquiries, users should click the floating WhatsApp widget on the bottom right of the screen to chat directly with human support or you offer to connect them to human support.
+**Step 3: Share Capital & Allotment (CRITICAL STEP)**
+- **Type of Company**: Dropdown selection. This determines the Minimum Share Capital required by law.
+- **Total Company Issued Share Capital**: The master capital value (usually ₦1,000,000 minimum).
+- **Share Details Breakdown (Classes)**: 
+  - Users must click "Add Share Class". They must have at least one "EQUITY (ORDINARY)" class. 
+  - They assign a "Total Value" to the class and divide it into "Units". 
+  - *Math Rule*: The sum of all Share Classes MUST exactly equal the "Total Company Issued Share Capital".
+- **Shareholders Allotment**: 
+  - 100% of the created Share Units must be distributed to owners.
+  - Users click "Allot" next to a person's name and type in the number of units they own.
+  - *Add Standalone Shareholder*: Used if an owner is ONLY an investor and not a Director.
+
+**Step 4: Company Officers**
+- *Rule*: Private companies MUST have at least one (1) Director. A Secretary is optional for small companies.
+- **Add Director / Add Secretary**: Opens the officer form.
+- **Personal Details**: Surname, First Name, DOB (Must be 18+), Gender, Occupation, Nationality.
+- **Identification**: Means of ID (NIN, Passport, Driver's License, Voters Card). *Rule*: If NIN is selected, the ID Number MUST be exactly 11 digits.
+- **Director Checkbox**: Directors have a toggle asking "Is this Director also a Shareholder?". If checked, they will magically appear in the Step 3 Allotment table so shares can be assigned to them.
+
+**Step 5: Persons with Significant Control (PSC)**
+- *Auto-Detection*: Any Shareholder who was allotted 5% or more of the total share units in Step 3 is automatically listed here.
+- *Action Required*: Users must click "Edit" on the auto-detected PSC to complete their profile.
+- **PSC Fields**: 
+  - "Is the PSC a Politically Exposed Person (PEP)?" (Yes/No)
+  - "Does the PSC have any affiliation?" (Yes/No)
+  - "Details of Interest Held": Direct/Indirect voting rights, power to appoint/remove directors, significant influence.
+
+**Step 6: Document Uploads**
+- **Means of ID**: For all officers. Accepts PDF, JPG, or PNG (Max 4MB).
+- **Signatures**: For the Witness, the Declarant, and all Officers. Accepts JPG or PNG ONLY (plain white paper). PDFs are strictly rejected.
+
+**Step 7: Compliance (Declarant)**
+- **Who fills this?**: This is the person making the statutory declaration (usually the user applying on the platform).
+- **Fields**: Surname, First Name, Accreditation Number (Leave blank if not an accredited agent), Phone, Email, Residential Address.
+- **Acknowledgement**: The user MUST click the checkbox to confirm compliance with CAMA 2020 before the payment buttons will activate.
+
+## 5. OTHER SERVICES (SCUML, TAX ID, NIN, AIRTIME)
+- **SCUML**: Standard fee applies. Takes 24-72 hrs (up to 5 days). Requires CAC Cert, Status Report, MEMART.
+- **Tax ID**: Individual (requires NIN) or Corporate (requires CAC Number). Usually ready in 30 mins during working hours.
+- **NIN Slip**: Search by NIN or linked Phone. 3 types: Regular, Standard Biometric, Premium Card. Instant delivery.
+- **Airtime**: Minimum ₦50. Has a 10-minute duplicate guard to prevent accidental double recharges.
+
+## 6. PARTNER PROGRAM (REFERRALS)
+- **Location**: /dashboard/referrals
+- **Referee Benefit**: 5% discount on first major service via Welcome Promo Code.
+- **Referrer Earning**: Fixed cash rewards deposited into "Available Balance" when the invited user successfully completes a paid service.
+- **Payouts**: Requires linking a Nigerian bank account (10-digit NUBAN). Account name MUST match registered LoraBiz name.
 `;
