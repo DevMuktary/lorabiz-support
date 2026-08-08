@@ -29,6 +29,7 @@ The User Dashboard is divided into a main workspace and a sidebar navigation.
 - CAC Post Incorporation
 - Trademark (IPO)
 - SMEDAN
+- And more exciting services
 
 **Management:**
 - **Profile Settings** (/dashboard/settings) - Manage name, avatar, phone number, and password.
