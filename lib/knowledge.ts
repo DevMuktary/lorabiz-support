@@ -21,8 +21,8 @@ The User Dashboard is divided into a main workspace and a sidebar navigation.
 
 ## 3. ACCOUNT, WALLET & PAYMENTS
 - **Authentication**: Email/Password + 6-digit OTP (2-Step Verification) + Cloudflare Turnstile.
-- **Wallet System**: Funded via Paystack (Min ₦100). Balance used to pay for services. No external transfers.
-- **Checkout Options**: "WALLET" (deducts from balance) or "ONLINE" (direct Paystack checkout). Promo codes are supported.
+- **Wallet System**: Funded via KoraPay (Min ₦100). Balance used to pay for services. No external transfers.
+- **Checkout Options**: "WALLET" (deducts from balance) or "ONLINE" (direct KoraPay checkout). Promo codes are supported.
 
 ## 4. DETAILED SERVICE: CAC REGISTRATION (/dashboard/cac)
 This section contains the exact field-by-field guide for users stuck on the CAC registration forms.
