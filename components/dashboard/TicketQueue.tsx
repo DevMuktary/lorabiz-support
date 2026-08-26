@@ -182,19 +182,33 @@ export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, b
                   <span className="truncate">{t.customerPhone || t.customerEmail || `Ticket #${t.$id.slice(-4)}`}</span>
                 </span>
                 
-                <span
-                  className={`text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-widest shrink-0 ${
-                    t.status === 'PENDING_AGENT'
-                      ? 'bg-[#c82d75] text-white animate-pulse'
-                      : t.status === 'IN_PROGRESS'
-                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
-                      : t.status === 'CLOSED'
-                      ? 'bg-red-500/10 text-red-400 border border-red-500/10'
-                      : 'bg-white/5 text-gray-400'
-                  }`}
-                >
-                  {t.status.replace('_', ' ')}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {t.status !== 'CLOSED' && (
+                    t.aiDisabled ? (
+                      <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/20">
+                        AI Paused
+                      </span>
+                    ) : (
+                      <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                        AI Active
+                      </span>
+                    )
+                  )}
+
+                  <span
+                    className={`text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-widest shrink-0 ${
+                      t.status === 'PENDING_AGENT'
+                        ? 'bg-[#c82d75] text-white animate-pulse'
+                        : t.status === 'IN_PROGRESS'
+                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
+                        : t.status === 'CLOSED'
+                        ? 'bg-red-500/10 text-red-400 border border-red-500/10'
+                        : 'bg-white/5 text-gray-400'
+                    }`}
+                  >
+                    {t.status.replace('_', ' ')}
+                  </span>
+                </div>
               </div>
               <p className={`text-sm truncate font-medium ${selectedTicket?.$id === t.$id ? 'text-gray-300' : 'text-gray-500'}`}>
                 {t.status === 'PENDING_AGENT' ? 'Human assistance requested...' : t.lastMessage || 'AI is handling conversation.'}

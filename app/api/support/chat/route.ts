@@ -67,6 +67,69 @@ export async function POST(req: Request) {
       }
     }
 
+    if (action === 'TOGGLE_AI_MODE') {
+      const { aiDisabled: disableVal } = body;
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+          aiDisabled: !!disableVal,
+        });
+        const systemNotice = disableVal
+          ? 'System: Lora AI auto-reply has been paused by the Admin. A human support representative is now handling this ticket directly.'
+          : 'System: Lora AI auto-reply has been re-enabled for this conversation.';
+        await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+          ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
+          sourceChannel: 'IN_APP', content: systemNotice,
+        }, securePermissions);
+        return NextResponse.json({ status: 'SUCCESS', aiDisabled: !!disableVal });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    if (action === 'ADMIN_INTERVENE') {
+      const { agentName } = body;
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+          status: 'IN_PROGRESS',
+          assignedAgentId: agentName || 'Support Agent',
+          aiDisabled: true, // Automatically pauses AI to save tokens!
+          customerTyping: false
+        });
+        const interveneNotice = `System: Support Agent (${agentName || 'Representative'}) has stepped into the conversation. Lora AI is paused.`;
+        await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+          ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
+          sourceChannel: 'IN_APP', content: interveneNotice,
+        }, securePermissions);
+        return NextResponse.json({ status: 'SUCCESS', statusChanged: 'IN_PROGRESS', aiDisabled: true });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    if (action === 'FORCE_END_CHAT') {
+      const { reason } = body;
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+          status: 'CLOSED',
+          customerTyping: false,
+          aiDisabled: true,
+        });
+        const closeNotice = reason 
+          ? `Conversation closed by Support Admin. Reason: ${reason}`
+          : 'This support conversation has been concluded and closed by the Support Team.';
+        await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+          ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
+          sourceChannel: 'IN_APP', content: closeNotice,
+        }, securePermissions);
+        return NextResponse.json({ status: 'SUCCESS', statusChanged: 'CLOSED' });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
     if (action === 'AI_SUGGEST') {
       if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
       try {
@@ -206,10 +269,9 @@ export async function POST(req: Request) {
       warningSent: false
     });
 
-    const hoursStatus = checkBusinessHours();
-
-    if (ticket.status === 'IN_PROGRESS' || (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline)) {
-      return NextResponse.json({ status: 'RECEIVED' });
+    // 🛑 TOKEN SAVER: If AI is paused/disabled on this ticket, or ticket is in progress/pending agent, DO NOT invoke AI!
+    if (ticket.aiDisabled || ticket.status === 'IN_PROGRESS' || (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline)) {
+      return NextResponse.json({ status: 'RECEIVED', note: 'AI bypassed to save tokens.' });
     }
 
     const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [

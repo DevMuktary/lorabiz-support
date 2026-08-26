@@ -14,6 +14,7 @@ export interface Ticket {
   aiSummary?: string;
   assignedAgentId?: string;
   customerTyping?: boolean; 
+  aiDisabled?: boolean;
   $createdAt: string;
   $updatedAt: string;
 }

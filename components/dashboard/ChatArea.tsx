@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Ticket, Message } from '@/types/dashboard';
 import TicketContext from './TicketContext';
-import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X, Zap, Sparkles, Download, Copy, Check } from 'lucide-react';
+import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X, Zap, Sparkles, Download, Copy, Check, Bot, ShieldAlert } from 'lucide-react';
 
 const CANNED_RESPONSES = [
   { label: 'Greeting', text: 'Hello! Thank you for reaching out to LoraBiz Support. How can I assist you today?' },
@@ -33,9 +33,14 @@ export default function ChatArea({
   const [showMobileContext, setShowMobileContext] = useState(false); 
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [isGeneratingAiSuggest, setIsGeneratingAiSuggest] = useState(false);
+  const [isAiDisabled, setIsAiDisabled] = useState(!!ticket.aiDisabled);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [dialog, setDialog] = useState<{ isOpen: boolean, title: string, message: string, action: () => void } | null>(null);
+
+  useEffect(() => {
+    setIsAiDisabled(!!ticket.aiDisabled);
+  }, [ticket.aiDisabled, ticket.$id]);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -61,21 +66,43 @@ export default function ChatArea({
     }
   };
 
-  const handleAiSuggest = async () => {
-    setIsGeneratingAiSuggest(true);
+  const handleToggleAi = async (disableAi: boolean) => {
     try {
-      const res = await fetch('/api/support/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'AI_SUGGEST', ticketId: ticket.$id })
+      setIsAiDisabled(disableAi);
+      ticket.aiDisabled = disableAi;
+      await fetch('/api/support/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'TOGGLE_AI_MODE', ticketId: ticket.$id, aiDisabled: disableAi })
       });
-      const data = await res.json();
-      if (data.suggestion) {
-        setReplyContent(data.suggestion);
-      }
-    } catch (e) {
-    } finally {
-      setIsGeneratingAiSuggest(false);
-    }
+      setDialog(null);
+    } catch (e) {}
+  };
+
+  const handleIntervene = async () => {
+    try {
+      setIsAiDisabled(true);
+      ticket.aiDisabled = true;
+      await fetch('/api/support/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ADMIN_INTERVENE', ticketId: ticket.$id, agentName: 'Admin' })
+      });
+      onPickTicket();
+      setDialog(null);
+    } catch (e) {}
+  };
+
+  const handleForceEndChat = async () => {
+    try {
+      await fetch('/api/support/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'FORCE_END_CHAT', ticketId: ticket.$id, reason: 'Terminated by Admin.' })
+      });
+      onEndChat();
+      setDialog(null);
+    } catch (e) {}
   };
 
   const handleExportTranscript = () => {
@@ -95,28 +122,44 @@ export default function ChatArea({
     URL.revokeObjectURL(url);
   };
 
+  const handleAiSuggest = async () => {
+    setIsGeneratingAiSuggest(true);
+    try {
+      const res = await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'AI_SUGGEST', ticketId: ticket.$id })
+      });
+      const data = await res.json();
+      if (data.suggestion) {
+        setReplyContent(data.suggestion);
+      }
+    } catch (e) {
+    } finally {
+      setIsGeneratingAiSuggest(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      if ((replyContent.trim() || selectedFile) && !loading) {
-        handleSubmit(e as any);
-      }
-    } else if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+      handleSubmit(e as any);
+    }
+    if (e.altKey && (e.key === 'n' || e.key === 'N')) {
       e.preventDefault();
       setIsInternalNote(prev => !prev);
     }
   };
 
   const handleScroll = () => {
-    if (scrollContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-      setIsScrolledUp(scrollHeight - scrollTop - clientHeight > 150);
-    }
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const isUp = scrollHeight - scrollTop - clientHeight > 100;
+    setIsScrolledUp(isUp);
   };
 
   useEffect(() => {
-    if (!isScrolledUp && !isFetchingChat) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    if (!isScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [cleanMessages.length, isCustomerTyping, isFetchingChat]);
 
@@ -137,7 +180,7 @@ export default function ChatArea({
     onSendMessage(replyContent, isInternalNote, selectedFile);
     
     setReplyContent('');
-    setSelectedFile(null); // Clear file after send
+    setSelectedFile(null);
     setIsScrolledUp(false); 
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
@@ -166,7 +209,7 @@ export default function ChatArea({
             <p className="text-gray-400 text-sm mb-6 leading-relaxed">{dialog.message}</p>
             <div className="flex gap-3 justify-end">
               <button onClick={() => setDialog(null)} className="px-4 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors">Cancel</button>
-              <button onClick={dialog.action} className="px-5 py-2 rounded-lg text-sm font-bold bg-[#c82d75] hover:bg-[#a62460] text-white transition-colors">Okay</button>
+              <button onClick={dialog.action} className="px-5 py-2 rounded-lg text-sm font-bold bg-[#c82d75] hover:bg-[#a62460] text-white transition-colors">Confirm</button>
             </div>
           </div>
         </div>
@@ -175,38 +218,114 @@ export default function ChatArea({
       {/* CENTER PANE */}
       <div className={`flex-1 flex flex-col min-w-0 transition-transform ${showMobileContext ? '-translate-x-full lg:translate-x-0' : ''} relative`}>
         
-        <header className="px-4 py-3 md:px-6 md:py-5 border-b border-white/5 bg-[#0d152b] flex items-center justify-between z-10 shrink-0">
-          <div className="flex items-center gap-3">
-            <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-full hover:bg-white/10 text-gray-300 transition-colors">
+        <header className="px-4 py-3 md:px-6 md:py-4 border-b border-white/5 bg-[#0d152b] flex items-center justify-between z-10 shrink-0 gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={onBack} className="md:hidden p-2 -ml-2 rounded-full hover:bg-white/10 text-gray-300 transition-colors shrink-0">
               <ChevronLeft className="w-6 h-6" />
             </button>
-            <div>
-              <h2 className="font-bold text-white flex items-center gap-2 text-lg truncate max-w-[180px] sm:max-w-xs">
+            <div className="min-w-0">
+              <h2 className="font-bold text-white flex items-center gap-2 text-base md:text-lg truncate">
                 {realCustomerName || displayIdentifier}
               </h2>
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest mt-0.5">
                 <span className="text-[#c82d75]">via {ticket.sourceChannel}</span>
-                {realCustomerName && <span className="text-gray-500 lowercase normal-case tracking-normal">({displayIdentifier})</span>}
+                {realCustomerName && <span className="text-gray-500 lowercase normal-case tracking-normal truncate">({displayIdentifier})</span>}
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
+            {/* 🛑 AI TOKEN SAVER TOGGLE */}
+            {ticket.status !== 'CLOSED' && (
+              isAiDisabled ? (
+                <button
+                  type="button"
+                  onClick={() => setDialog({
+                    isOpen: true,
+                    title: 'Resume AI Auto-Reply',
+                    message: 'Re-enable Lora AI to automatically answer incoming messages for this customer?',
+                    action: () => handleToggleAi(false)
+                  })}
+                  title="AI is paused (Tokens protected). Click to re-enable."
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">AI Paused</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDialog({
+                    isOpen: true,
+                    title: 'Pause AI (Save Tokens)',
+                    message: 'Pause Lora AI auto-replies for this ticket? Customer messages will wait for a human agent without spending AI tokens.',
+                    action: () => handleToggleAi(true)
+                  })}
+                  title="AI is auto-responding. Click to pause and save tokens."
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Bot className="w-3.5 h-3.5 animate-pulse" />
+                  <span className="hidden sm:inline">AI Active</span>
+                </button>
+              )
+            )}
+
+            {/* ⚡ DABBLE IN / TAKE OVER */}
+            {(ticket.status === 'OPEN' || ticket.status === 'PENDING_AGENT') && (
+              <button
+                type="button"
+                onClick={() => setDialog({
+                  isOpen: true,
+                  title: 'Dabble In & Take Over',
+                  message: 'Step into this conversation? This will assign you as the active agent and pause AI auto-replies to save tokens.',
+                  action: () => handleIntervene()
+                })}
+                disabled={loading}
+                className="px-3 py-1.5 bg-[#c82d75] hover:bg-[#a62460] text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Take Over</span>
+              </button>
+            )}
+
+            {/* 🚫 FORCE END CHAT */}
+            {ticket.status !== 'CLOSED' && (
+              <button
+                type="button"
+                onClick={() => setDialog({
+                  isOpen: true,
+                  title: 'Force End Conversation',
+                  message: 'Forcibly terminate this chat session? This will immediately close the ticket and prevent further token consumption.',
+                  action: () => handleForceEndChat()
+                })}
+                disabled={loading}
+                className="p-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                title="Force End Chat"
+              >
+                <XCircle className="w-4 h-4" />
+              </button>
+            )}
+
+            {ticket.status === 'CLOSED' && (
+              <button onClick={() => setDialog({ isOpen: true, title: 'Reopen Ticket', message: 'Are you sure you want to reopen this ticket? You will be assigned as the active agent.', action: () => { onReopenTicket(); setDialog(null); }})} disabled={loading} className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5"/> Reopen</button>
+            )}
+
             <button onClick={() => setShowMobileContext(!showMobileContext)} className="xl:hidden p-2 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 transition-colors">
               <Info className="w-5 h-5" />
             </button>
-
-            {ticket.status === 'PENDING_AGENT' && (
-              <button onClick={() => setDialog({ isOpen: true, title: 'Accept Chat', message: 'Are you sure you want to assign this chat to yourself?', action: () => { onPickTicket(); setDialog(null); }})} disabled={loading} className="px-4 py-2 bg-[#c82d75] hover:bg-[#a62460] text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors shadow-lg flex items-center gap-1.5"><User className="w-3.5 h-3.5"/> Accept</button>
-            )}
-            {ticket.status === 'IN_PROGRESS' && (
-              <button onClick={() => setDialog({ isOpen: true, title: 'End Conversation', message: 'Are you sure you want to close this chat? The customer will need to start a new flow.', action: () => { onEndChat(); setDialog(null); }})} disabled={loading} className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"><XCircle className="w-3.5 h-3.5"/> End</button>
-            )}
-            {ticket.status === 'CLOSED' && (
-              <button onClick={() => setDialog({ isOpen: true, title: 'Reopen Ticket', message: 'Are you sure you want to reopen this ticket? You will be assigned as the active agent.', action: () => { onReopenTicket(); setDialog(null); }})} disabled={loading} className="px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5"/> Reopen</button>
-            )}
           </div>
         </header>
+
+        {/* 🛑 TOKEN SAVER BANNER */}
+        {isAiDisabled && ticket.status !== 'CLOSED' && (
+          <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between text-xs text-amber-200 shrink-0">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+              <span><strong>AI Token Saver Active:</strong> Lora AI is paused. Incoming messages will not consume AI tokens.</span>
+            </div>
+            <button onClick={() => handleToggleAi(false)} className="text-amber-400 hover:underline font-bold text-[11px] shrink-0 ml-2 cursor-pointer">Resume AI →</button>
+          </div>
+        )}
 
         {/* FEED AREA */}
         <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative flex flex-col">
@@ -399,15 +518,59 @@ export default function ChatArea({
               </div>
             </form>
           ) : (
-            <div className="w-full py-4 bg-white/5 text-gray-500 rounded-xl font-bold uppercase tracking-widest flex items-center justify-center text-xs border border-white/5">
-              {ticket.status === 'CLOSED' ? 'Ticket is closed' : 'Controlled by AI'}
-            </div>
+            ticket.status === 'CLOSED' ? (
+              <div className="w-full py-3 bg-white/5 text-gray-500 rounded-xl font-bold uppercase tracking-widest flex items-center justify-center text-xs border border-white/5">
+                Ticket is Closed
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-[#050b1b] border border-white/10 rounded-2xl">
+                <div className="flex items-center gap-2.5 text-xs text-gray-300">
+                  {isAiDisabled ? (
+                    <span className="flex items-center gap-1.5 text-amber-400 font-bold">
+                      <ShieldAlert className="w-4 h-4" /> AI Paused (Token Saver Active)
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <Bot className="w-4 h-4 animate-pulse text-emerald-400" /> AI Auto-Pilot Active
+                    </span>
+                  )}
+                  <span className="text-gray-500 hidden md:inline">• Intervene anytime to stop AI and take over</span>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={handleIntervene}
+                    disabled={loading}
+                    className="flex-1 sm:flex-none px-4 py-2 bg-[#c82d75] hover:bg-[#a62460] text-white text-xs font-bold rounded-xl uppercase tracking-wider transition-colors shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Zap className="w-3.5 h-3.5" /> Take Over &amp; Reply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAi(!isAiDisabled)}
+                    className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    {isAiDisabled ? 'Resume AI' : 'Pause AI'}
+                  </button>
+                </div>
+              </div>
+            )
           )}
         </div>
       </div>
 
       <div className={`absolute inset-0 xl:relative xl:inset-auto xl:flex transition-transform ${showMobileContext ? 'translate-x-0' : 'translate-x-full xl:translate-x-0'} z-20`}>
-        <TicketContext messages={messages} ticket={ticket} loading={loading} onPickTicket={() => setDialog({ isOpen: true, title: 'Accept Chat', message: 'Are you sure you want to assign this chat to yourself?', action: () => { onPickTicket(); setDialog(null); }})} onEndChat={() => setDialog({ isOpen: true, title: 'End Conversation', message: 'Are you sure you want to close this chat?', action: () => { onEndChat(); setDialog(null); }})} onReopenTicket={() => setDialog({ isOpen: true, title: 'Reopen Ticket', message: 'Are you sure you want to reopen this ticket?', action: () => { onReopenTicket(); setDialog(null); }})} onCloseMobile={() => setShowMobileContext(false)} />
+        <TicketContext
+          messages={messages}
+          ticket={ticket}
+          loading={loading}
+          onPickTicket={handleIntervene}
+          onEndChat={() => setDialog({ isOpen: true, title: 'End Conversation', message: 'Are you sure you want to close this chat?', action: () => { onEndChat(); setDialog(null); }})}
+          onReopenTicket={() => setDialog({ isOpen: true, title: 'Reopen Ticket', message: 'Are you sure you want to reopen this ticket?', action: () => { onReopenTicket(); setDialog(null); }})}
+          onToggleAi={handleToggleAi}
+          onForceEndChat={handleForceEndChat}
+          onCloseMobile={() => setShowMobileContext(false)}
+        />
       </div>
     </div>
   );
