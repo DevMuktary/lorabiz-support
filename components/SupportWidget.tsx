@@ -451,21 +451,50 @@ export default function SupportWidget() {
     }
   };
 
+  useEffect(() => {
+    if (!activeTicketId) {
+      setCsatRating(0);
+      setCsatFeedback('');
+      setCsatSubmitted(false);
+      return;
+    }
+    const currentTicket = historyTickets.find(t => t.$id === activeTicketId);
+    const savedLocalRating = typeof window !== 'undefined' ? localStorage.getItem(`lorabiz_csat_rated_${activeTicketId}`) : null;
+    
+    if (currentTicket?.rating && currentTicket.rating > 0) {
+      setCsatRating(currentTicket.rating);
+      setCsatFeedback(currentTicket.ratingFeedback || '');
+      setCsatSubmitted(true);
+    } else if (savedLocalRating) {
+      setCsatRating(Number(savedLocalRating));
+      setCsatSubmitted(true);
+    } else {
+      setCsatRating(0);
+      setCsatFeedback('');
+      setCsatSubmitted(false);
+    }
+  }, [activeTicketId, historyTickets]);
+
   const handleSubmitRating = async (ratingVal: number) => {
     setCsatRating(ratingVal);
+    setCsatSubmitted(true);
     if (!activeTicketId) return;
     try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`lorabiz_csat_rated_${activeTicketId}`, String(ratingVal));
+      }
+      setHistoryTickets(prev => prev.map(t => t.$id === activeTicketId ? { ...t, rating: ratingVal, ratingFeedback: csatFeedback } : t));
       await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'SUBMIT_RATING', ticketId: activeTicketId, rating: ratingVal, feedback: csatFeedback })
       });
-      setCsatSubmitted(true);
     } catch (e) {}
   };
 
   const isDark = theme === 'dark';
   const closedTickets = historyTickets.filter(t => t.status === 'CLOSED').slice(0, 3);
-  const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
+  const activeTicket = historyTickets.find(t => t.$id === activeTicketId);
+  const isViewingClosedTicket = activeTicket?.status === 'CLOSED';
 
   return (
     <div className="w-full h-full flex flex-col justify-end items-end select-none bg-transparent">
@@ -779,102 +808,107 @@ export default function SupportWidget() {
                      </div>
                    )}
 
-                   {isViewingClosedTicket ? (
-                     <div className={`p-5 border-t shrink-0 pb-safe space-y-3 ${
-                       isDark ? 'bg-[#0d152b] border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'
-                     }`}>
-                       <div className="text-center">
-                         <h4 className="text-[14px] font-bold">How was your support experience?</h4>
-                         <p className={`text-[12px] mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Your rating helps us improve.</p>
-                       </div>
+                    {isViewingClosedTicket ? (
+                      <div className={`p-5 border-t shrink-0 pb-safe space-y-3 ${
+                        isDark ? 'bg-[#0d152b] border-white/10 text-white' : 'bg-white border-gray-200 text-gray-900'
+                      }`}>
+                        {(csatSubmitted || (activeTicket?.rating && activeTicket.rating > 0)) ? (
+                          <div className="text-center py-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 space-y-1">
+                            <div className="text-emerald-500 font-bold text-xs flex items-center justify-center gap-1.5">
+                              <span>✓ You rated this support session {csatRating || activeTicket?.rating} ★</span>
+                            </div>
+                            <p className={`text-[11px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Thank you for your feedback!</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-center">
+                              <h4 className="text-[14px] font-bold">How was your support experience?</h4>
+                              <p className={`text-[12px] mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Your rating helps us improve.</p>
+                            </div>
 
-                       {!csatSubmitted ? (
-                         <div className="flex flex-col items-center gap-3">
-                           <div className="flex gap-2">
-                             {[1, 2, 3, 4, 5].map((star) => (
-                               <button
-                                 key={star}
-                                 type="button"
-                                 onClick={() => handleSubmitRating(star)}
-                                 className={`text-2xl p-1 transition-transform hover:scale-125 ${csatRating >= star ? 'text-amber-400' : 'text-gray-300 hover:text-amber-300'}`}
-                               >
-                                 ★
-                               </button>
-                             ))}
-                           </div>
-                           <div className="flex w-full gap-2">
-                             <input
-                               type="text"
-                               placeholder="Add a quick comment (optional)..."
-                               value={csatFeedback}
-                               onChange={(e) => setCsatFeedback(e.target.value)}
-                               className={`flex-1 text-xs border rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[#8B2D75] ${
-                                 isDark ? 'bg-[#050b1b] border-white/10 text-white placeholder:text-gray-600' : 'bg-gray-50 border-gray-200 text-gray-900'
-                               }`}
-                             />
-                             {csatRating > 0 && (
-                               <button
-                                 onClick={() => handleSubmitRating(csatRating)}
-                                 className="px-3 py-2 bg-[#8B2D75] text-white text-xs font-bold rounded-lg hover:bg-[#772364]"
-                               >
-                                 Submit
-                               </button>
-                             )}
-                           </div>
-                         </div>
-                       ) : (
-                         <div className="text-center py-2 text-emerald-500 font-bold text-xs flex items-center justify-center gap-1.5 bg-emerald-500/10 rounded-lg p-2">
-                           <span>✓ Thank you for your feedback!</span>
-                         </div>
-                       )}
+                            <div className="flex flex-col items-center gap-3">
+                              <div className="flex gap-2">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <button
+                                    key={star}
+                                    type="button"
+                                    onClick={() => handleSubmitRating(star)}
+                                    className={`text-2xl p-1 transition-transform hover:scale-125 ${csatRating >= star ? 'text-amber-400' : 'text-gray-300 hover:text-amber-300'}`}
+                                  >
+                                    ★
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex w-full gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Add a quick comment (optional)..."
+                                  value={csatFeedback}
+                                  onChange={(e) => setCsatFeedback(e.target.value)}
+                                  className={`flex-1 text-xs border rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[#8B2D75] ${
+                                    isDark ? 'bg-[#050b1b] border-white/10 text-white placeholder:text-gray-600' : 'bg-gray-50 border-gray-200 text-gray-900'
+                                  }`}
+                                />
+                                {csatRating > 0 && (
+                                  <button
+                                    onClick={() => handleSubmitRating(csatRating)}
+                                    className="px-3 py-2 bg-[#8B2D75] text-white text-xs font-bold rounded-lg hover:bg-[#772364]"
+                                  >
+                                    Submit
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
 
-                       <div className={`pt-2 border-t flex justify-between items-center text-[12px] ${isDark ? 'border-white/10' : 'border-gray-100'}`}>
-                         <button onClick={handleExportTranscript} className="text-[#8B2D75] hover:underline font-medium">
-                           📄 Download Transcript
-                         </button>
-                         <button onClick={() => setView('HUB')} className={`font-medium ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}>
-                           Return to Hub →
-                         </button>
-                       </div>
-                     </div>
-                   ) : (
-                     <div className={`p-3 sm:p-4 border-t shrink-0 pb-safe z-10 ${
-                       isDark ? 'bg-[#0d152b] border-white/10' : 'bg-white border-gray-200'
-                     }`}>
-                       {selectedFile && (
-                         <div className={`mb-3 relative flex items-center rounded-lg p-3 pr-10 text-[13px] font-medium w-full shadow-sm border ${
-                           isDark ? 'bg-[#050b1b] border-white/10 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-700'
-                         }`}>
-                            <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                            <span className="truncate flex-1">{selectedFile.name}</span>
-                            <button onClick={() => setSelectedFile(null)} className="absolute right-3 bg-red-500/20 text-red-400 rounded-full p-1.5 hover:bg-red-500/30 transition-colors">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                         </div>
-                       )}
-                       <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
-                          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
-                          
-                          <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 transition-colors rounded-xl shrink-0 ${
-                            isDark ? 'text-gray-400 hover:text-[#c82d75] hover:bg-white/5' : 'text-gray-400 hover:text-[#8B2D75] hover:bg-gray-50'
+                        <div className={`pt-2 border-t flex justify-between items-center text-[12px] ${isDark ? 'border-white/10' : 'border-gray-100'}`}>
+                          <button onClick={handleExportTranscript} className="text-[#8B2D75] hover:underline font-medium">
+                            📄 Download Transcript
+                          </button>
+                          <button onClick={() => setView('HUB')} className={`font-medium ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}>
+                            Return to Hub →
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`p-3 sm:p-4 border-t shrink-0 pb-safe z-10 ${
+                        isDark ? 'bg-[#0d152b] border-white/10' : 'bg-white border-gray-200'
+                      }`}>
+                        {selectedFile && (
+                          <div className={`mb-3 relative flex items-center rounded-lg p-3 pr-10 text-[13px] font-medium w-full shadow-sm border ${
+                            isDark ? 'bg-[#050b1b] border-white/10 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-700'
                           }`}>
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                          </button>
-                          
-                          <input type="text" value={inputText} onChange={handleInputChange} onFocus={scrollToBottom} placeholder="Message..." className={`flex-1 text-[16px] rounded-xl p-3.5 min-w-0 outline-none border transition-all ${
-                            isDark 
-                              ? 'bg-[#050b1b] border-white/10 text-white placeholder:text-gray-500 focus:ring-2 focus:ring-[#c82d75] focus:border-[#c82d75]' 
-                              : 'bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-[#8B2D75] focus:border-[#8B2D75]'
-                          }`} />
-                          
-                          <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#8B2D75] hover:bg-[#772364] text-white rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0 shadow-sm">
-                            {isUploading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
-                          </button>
-                       </form>
-                     </div>
-                   )}
-                 </div>
-              )}
+                             <svg className="w-5 h-5 text-gray-500 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                             <span className="truncate flex-1">{selectedFile.name}</span>
+                             <button onClick={() => setSelectedFile(null)} className="absolute right-3 bg-red-500/20 text-red-400 rounded-full p-1.5 hover:bg-red-500/30 transition-colors">
+                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                             </button>
+                          </div>
+                        )}
+                        <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
+                           <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,application/pdf" />
+                           
+                           <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-3 transition-colors rounded-xl shrink-0 ${
+                             isDark ? 'text-gray-400 hover:text-[#c82d75] hover:bg-white/5' : 'text-gray-400 hover:text-[#8B2D75] hover:bg-gray-50'
+                           }`}>
+                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                           </button>
+                           
+                           <input type="text" value={inputText} onChange={handleInputChange} onFocus={scrollToBottom} placeholder="Message..." className={`flex-1 text-[16px] rounded-xl p-3.5 min-w-0 outline-none border transition-all ${
+                             isDark 
+                               ? 'bg-[#050b1b] border-white/10 text-white placeholder:text-gray-500 focus:ring-2 focus:ring-[#c82d75] focus:border-[#c82d75]' 
+                               : 'bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-[#8B2D75] focus:border-[#8B2D75]'
+                           }`} />
+                           
+                           <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#8B2D75] hover:bg-[#772364] text-white rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0 shadow-sm">
+                             {isUploading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                           </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+               )}
             </>
           )}
         </div>
@@ -885,18 +919,18 @@ export default function SupportWidget() {
           <button
             onClick={() => toggleWidget(true)}
             aria-label="Open support chat"
-            className={`group relative w-[60px] h-[60px] rounded-full aspect-square border-[2.5px] flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none ${
+            className={`group relative w-[60px] h-[60px] rounded-full aspect-square border-[2.5px] flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none overflow-hidden ${
               isDark 
                 ? 'bg-[#0d152b] border-[#c82d75] shadow-[0_4px_16px_rgba(200,45,117,0.3)] hover:shadow-[0_6px_20px_rgba(200,45,117,0.45)]' 
-                : 'bg-[#FAF4F9] border-[#8B2D75] shadow-[0_4px_16px_rgba(139,45,117,0.25)] hover:shadow-[0_6px_20px_rgba(139,45,117,0.35)]'
+                : 'bg-white border-[#8B2D75] shadow-[0_4px_16px_rgba(139,45,117,0.25)] hover:shadow-[0_6px_20px_rgba(139,45,117,0.35)]'
             }`}
           >
-            {/* Circular Avatar Container with clean soft backdrop */}
-            <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center p-[1px] bg-transparent`}>
+            {/* Circular Avatar Container with clean rounded clip */}
+            <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center p-0 bg-transparent">
               <img 
                 src="/support.png" 
                 alt="LoraBiz Support" 
-                className="w-[110%] h-[110%] object-cover object-top translate-y-0.5 rounded-full select-none pointer-events-none" 
+                className="w-full h-full object-cover rounded-full select-none pointer-events-none" 
               />
             </div>
 

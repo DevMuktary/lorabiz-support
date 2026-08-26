@@ -288,13 +288,16 @@
       container.style.removeProperty('top');
       container.style.removeProperty('left');
       container.style.removeProperty('inset');
+      container.style.removeProperty('max-width');
+      container.style.removeProperty('max-height');
       container.style.setProperty('width', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
-      container.style.setProperty('max-width', CLOSED_SIZE + 'px', 'important');
-      container.style.setProperty('max-height', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('bottom', currentPos.bottom + 'px', 'important');
       container.style.setProperty('right', currentPos.right + 'px', 'important');
       container.style.setProperty('pointer-events', 'none', 'important');
+      container.style.setProperty('background', 'transparent', 'important');
+      container.style.setProperty('background-color', 'transparent', 'important');
+      container.style.setProperty('box-shadow', 'none', 'important');
       if (iframe) iframe.style.setProperty('pointer-events', 'auto', 'important');
     }
     
@@ -306,30 +309,42 @@
 
       container.style.setProperty('pointer-events', 'auto', 'important');
 
-      // Floating card on ALL devices - NEVER takes over top:0 or browser status bar
-      const isMobile = window.innerWidth <= 640;
-      const OPEN_WIDTH = isMobile ? Math.min(380, window.innerWidth - 24) : 390;
-      const OPEN_HEIGHT = isMobile ? Math.min(580, window.innerHeight - 80) : 600;
+      if (window.innerWidth <= 640) {
+        // Fullscreen on mobile as requested
+        container.style.removeProperty('bottom');
+        container.style.removeProperty('right');
+        container.style.setProperty('top', '0', 'important');
+        container.style.setProperty('left', '0', 'important');
+        container.style.setProperty('width', '100%', 'important');
+        container.style.setProperty('height', '100%', 'important');
+        container.style.setProperty('max-width', '100%', 'important');
+        container.style.setProperty('max-height', '100%', 'important');
+        container.style.setProperty('border-radius', '0', 'important');
+      } else {
+        // Floating popup card on desktop
+        const OPEN_WIDTH = 400;
+        const OPEN_HEIGHT = 650;
 
-      let openRight = currentPos.right;
-      let openBottom = currentPos.bottom;
+        let openRight = currentPos.right;
+        let openBottom = currentPos.bottom;
 
-      if (openRight + OPEN_WIDTH > window.innerWidth - 12) {
-        openRight = Math.max(12, window.innerWidth - OPEN_WIDTH - 12);
+        if (openRight + OPEN_WIDTH > window.innerWidth - 12) {
+          openRight = Math.max(12, window.innerWidth - OPEN_WIDTH - 12);
+        }
+        if (openBottom + OPEN_HEIGHT > window.innerHeight - 12) {
+          openBottom = Math.max(12, window.innerHeight - OPEN_HEIGHT - 12);
+        }
+
+        container.style.removeProperty('top');
+        container.style.removeProperty('left');
+        container.style.removeProperty('inset');
+        container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
+        container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
+        container.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
+        container.style.setProperty('max-height', 'calc(100vh - 40px)', 'important');
+        container.style.setProperty('bottom', openBottom + 'px', 'important');
+        container.style.setProperty('right', openRight + 'px', 'important');
       }
-      if (openBottom + OPEN_HEIGHT > window.innerHeight - 12) {
-        openBottom = Math.max(12, window.innerHeight - OPEN_HEIGHT - 12);
-      }
-
-      container.style.removeProperty('top');
-      container.style.removeProperty('left');
-      container.style.removeProperty('inset');
-      container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
-      container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
-      container.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
-      container.style.setProperty('max-height', 'calc(100vh - 40px)', 'important');
-      container.style.setProperty('bottom', openBottom + 'px', 'important');
-      container.style.setProperty('right', openRight + 'px', 'important');
     }
   });
 })();
