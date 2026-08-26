@@ -187,18 +187,18 @@ export async function POST(req: Request) {
         await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
           status: 'PENDING_AGENT', aiSummary: summary,
         });
-        await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+        const handoverDoc = await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
           ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System', sourceChannel: 'IN_APP', content: handoverMessage,
         }, securePermissions);
-        return NextResponse.json({ status: 'HANDOVER_INITIATED', reply: handoverMessage });
+        return NextResponse.json({ status: 'HANDOVER_INITIATED', reply: handoverMessage, message: handoverDoc });
       }
     }
 
-    await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
+    const aiDoc = await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
       ticketId, senderType: 'ASSISTANT', senderId: 'LORA_BOT', senderName: 'Lora', sourceChannel: 'IN_APP', content: aiResponse,
     }, securePermissions);
 
-    return NextResponse.json({ status: 'SUCCESS', reply: aiResponse });
+    return NextResponse.json({ status: 'SUCCESS', reply: aiResponse, message: aiDoc });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

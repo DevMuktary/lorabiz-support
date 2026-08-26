@@ -179,7 +179,7 @@ export default function SupportWidget() {
 
           setMessages(prev => {
              const serverIds = new Set(data.messages.map((m: any) => m.$id));
-             const inFlight = prev.filter(m => !serverIds.has(m.$id) && m.senderType === 'CUSTOMER');
+             const inFlight = prev.filter(m => !serverIds.has(m.$id) && !data.messages.some((sm: any) => sm.content === m.content && sm.senderType === m.senderType));
              return [...data.messages, ...inFlight];
           });
           
@@ -302,12 +302,22 @@ export default function SupportWidget() {
     try {
       const systemContextMessage = `[System: Customer Onboarded]\nName: ${userDetails.name}\nEmail: ${userDetails.email}\nTopic: ${userDetails.topic}\nDescription: ${userDetails.description}`;
 
-      await fetch('/api/support/chat', {
+      const res = await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ticketId: newTicketId, userId: authUserId, message: systemContextMessage, senderName: userDetails.name, customerEmail: userDetails.email 
         }),
       });
+      const data = await res.json();
+      if (data.reply) {
+        const replyMsg = data.message || {
+          $id: ID.unique(),
+          senderType: data.status === 'HANDOVER_INITIATED' ? 'SYSTEM' : 'ASSISTANT',
+          senderName: data.status === 'HANDOVER_INITIATED' ? 'System' : 'Lora',
+          content: data.reply
+        };
+        setMessages(prev => [...prev, replyMsg]);
+      }
       setHistoryTickets(prev => [{ $id: newTicketId, status: 'OPEN', $createdAt: new Date().toISOString(), title: userDetails.topic }, ...prev]);
     } catch (error) {} finally {
       setIsTyping(false);
@@ -342,12 +352,27 @@ export default function SupportWidget() {
     }
 
     try {
-      await fetch('/api/support/chat', {
+      const res = await fetch('/api/support/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ticketId: activeTicketId, messageId, userId: authUserId, message: currentText, senderName: userDetails.name, attachmentUrl: uploadedFileUrl 
         }),
       });
+      const data = await res.json();
+      if (data.reply) {
+        const replyMsg = data.message || {
+          $id: ID.unique(),
+          senderType: data.status === 'HANDOVER_INITIATED' ? 'SYSTEM' : 'ASSISTANT',
+          senderName: data.status === 'HANDOVER_INITIATED' ? 'System' : 'Lora',
+          content: data.reply
+        };
+        setMessages(prev => {
+          if (prev.some(m => m.$id === replyMsg.$id || (m.content === replyMsg.content && m.senderType === replyMsg.senderType))) {
+            return prev;
+          }
+          return [...prev, replyMsg];
+        });
+      }
     } catch (error) {
       setMessages(prev => prev.filter(m => m.$id !== messageId));
     } finally {
