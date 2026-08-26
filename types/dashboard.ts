@@ -1,7 +1,13 @@
 export interface Ticket {
   $id: string;
+  title?: string;
+  customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
+  topic?: string;
+  userId?: string;
+  rating?: number;
+  ratingFeedback?: string;
   sourceChannel: 'WHATSAPP' | 'EMAIL' | 'IN_APP';
   status: 'OPEN' | 'PENDING_AGENT' | 'IN_PROGRESS' | 'CLOSED' | 'RESOLVED';
   lastMessage?: string;
