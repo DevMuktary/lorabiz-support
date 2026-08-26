@@ -881,20 +881,18 @@ export default function SupportWidget() {
       )}
 
       {!isOpen && (
-        <div className="w-full h-full flex items-center justify-center bg-transparent pointer-events-auto select-none">
+        <div className="w-full h-full flex items-center justify-center bg-transparent pointer-events-auto select-none p-0 m-0">
           <button
             onClick={() => toggleWidget(true)}
             aria-label="Open support chat"
             className={`group relative w-[60px] h-[60px] rounded-full aspect-square border-[2.5px] flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none ${
               isDark 
                 ? 'bg-[#0d152b] border-[#c82d75] shadow-[0_4px_16px_rgba(200,45,117,0.3)] hover:shadow-[0_6px_20px_rgba(200,45,117,0.45)]' 
-                : 'bg-white border-[#8B2D75] shadow-[0_4px_16px_rgba(139,45,117,0.25)] hover:shadow-[0_6px_20px_rgba(139,45,117,0.35)]'
+                : 'bg-[#FAF4F9] border-[#8B2D75] shadow-[0_4px_16px_rgba(139,45,117,0.25)] hover:shadow-[0_6px_20px_rgba(139,45,117,0.35)]'
             }`}
           >
             {/* Circular Avatar Container with clean soft backdrop */}
-            <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center p-[1px] ${
-              isDark ? 'bg-gradient-to-b from-[#1a233d] to-[#0d152b]' : 'bg-gradient-to-b from-[#FAF4F9] to-white'
-            }`}>
+            <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center p-[1px] bg-transparent`}>
               <img 
                 src="/support.png" 
                 alt="LoraBiz Support" 

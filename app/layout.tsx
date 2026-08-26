@@ -14,8 +14,8 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body>{children}</body>
+      <html lang="en" style={{ background: 'transparent', backgroundColor: 'transparent' }}>
+        <body style={{ background: 'transparent', backgroundColor: 'transparent' }}>{children}</body>
       </html>
     </ClerkProvider>
   )

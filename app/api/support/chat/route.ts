@@ -269,6 +269,8 @@ export async function POST(req: Request) {
       warningSent: false
     });
 
+    const hoursStatus = checkBusinessHours();
+
     // 🛑 TOKEN SAVER: If AI is paused/disabled on this ticket, or ticket is in progress/pending agent, DO NOT invoke AI!
     if (ticket.aiDisabled || ticket.status === 'IN_PROGRESS' || (ticket.status === 'PENDING_AGENT' && hoursStatus.isOnline)) {
       return NextResponse.json({ status: 'RECEIVED', note: 'AI bypassed to save tokens.' });
