@@ -629,27 +629,27 @@ export default function SupportWidget() {
       )}
 
       {!isOpen && (
-        <div className="w-full h-full flex items-center justify-center pointer-events-auto">
+        <div className="w-full h-full flex items-center justify-center bg-transparent pointer-events-auto select-none">
           <button
             onClick={() => toggleWidget(true)}
             aria-label="Open support chat"
-            className="group relative w-[64px] h-[64px] rounded-full aspect-square bg-white border-[3px] border-[#8B2D75] shadow-[0_8px_25px_rgba(0,0,0,0.22)] flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none focus:ring-4 focus:ring-[#8B2D75]/20"
+            className="group relative w-[60px] h-[60px] rounded-full aspect-square bg-white border-[2.5px] border-[#8B2D75] shadow-[0_4px_16px_rgba(139,45,117,0.25)] hover:shadow-[0_6px_20px_rgba(139,45,117,0.35)] flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none"
           >
-            {/* Circular Avatar Container */}
-            <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center p-[2px] bg-white">
+            {/* Circular Avatar Container with clean soft backdrop */}
+            <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center bg-gradient-to-b from-[#FAF4F9] to-white p-[1px]">
               <img 
                 src="/support.png" 
                 alt="LoraBiz Support" 
-                className="w-full h-full object-cover object-top rounded-full select-none pointer-events-none" 
+                className="w-[110%] h-[110%] object-cover object-top translate-y-0.5 rounded-full select-none pointer-events-none" 
               />
             </div>
 
             {/* Online status indicator */}
-            <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-sm" title="Agent Online"></span>
+            <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full shadow-sm" title="Agent Online"></span>
             
-            {/* 🚀 Dynamic Unread Number Badge 🚀 */}
+            {/* Dynamic Unread Number Badge */}
             {unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1.5 bg-gradient-to-r from-red-500 to-rose-600 border-2 border-white rounded-full shadow-lg flex items-center justify-center text-[11px] font-black text-white leading-none animate-bounce z-20">
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-[20px] px-1 bg-gradient-to-r from-red-500 to-rose-600 border-2 border-white rounded-full shadow-md flex items-center justify-center text-[10.5px] font-black text-white leading-none animate-bounce z-20">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}

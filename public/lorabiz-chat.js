@@ -2,7 +2,7 @@
   if (window.LORA_INIT_WIDGET) return;
 
   const STORAGE_POS_KEY = 'lorabiz_support_widget_pos';
-  const CLOSED_SIZE = 84; // width and height in px for launcher
+  const CLOSED_SIZE = 76; // compact size in px for launcher bubble
 
   function getSavedPosition() {
     try {
@@ -10,11 +10,11 @@
       if (saved) {
         const parsed = JSON.parse(saved);
         if (typeof parsed.right === 'number' && typeof parsed.bottom === 'number') {
-          const maxRight = Math.max(12, window.innerWidth - CLOSED_SIZE - 12);
-          const maxBottom = Math.max(12, window.innerHeight - CLOSED_SIZE - 12);
+          const maxRight = Math.max(8, window.innerWidth - CLOSED_SIZE - 8);
+          const maxBottom = Math.max(8, window.innerHeight - CLOSED_SIZE - 8);
           return {
-            right: Math.min(Math.max(12, parsed.right), maxRight),
-            bottom: Math.min(Math.max(12, parsed.bottom), maxBottom)
+            right: Math.min(Math.max(8, parsed.right), maxRight),
+            bottom: Math.min(Math.max(8, parsed.bottom), maxBottom)
           };
         }
       }
@@ -48,7 +48,6 @@
     }
 
     let existingIframe = document.getElementById('lorabiz-support-iframe');
-    
     if (existingIframe) {
       if (existingIframe.src !== widgetUrl) {
         existingIframe.src = widgetUrl;
@@ -58,6 +57,7 @@
 
     currentPos = getSavedPosition();
 
+    // Floating Container - Self-contained, does not affect dashboard flow
     const container = document.createElement('div');
     container.id = 'lorabiz-support-widget-container';
     
@@ -68,13 +68,10 @@
     container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
     container.style.setProperty('z-index', '2147483647', 'important'); 
     container.style.setProperty('border', 'none', 'important');
-    container.style.setProperty('overflow', 'visible', 'important');
     container.style.setProperty('background', 'transparent', 'important');
-    container.style.setProperty('transition', 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 'important');
     container.style.setProperty('pointer-events', 'auto', 'important');
-    container.style.setProperty('touch-action', 'none', 'important');
-    container.style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
-    container.style.setProperty('transform', 'translateZ(0)', 'important');
+    container.style.setProperty('user-select', 'none', 'important');
+    container.style.setProperty('-webkit-user-select', 'none', 'important');
 
     const iframe = document.createElement('iframe');
     iframe.src = widgetUrl; 
@@ -89,7 +86,7 @@
     iframe.style.setProperty('pointer-events', 'auto', 'important'); 
     iframe.style.setProperty('color-scheme', 'normal', 'important');
 
-    // Drag Handle Overlay for when widget is closed
+    // Drag Handle Overlay on top of iframe when closed
     const dragHandle = document.createElement('div');
     dragHandle.id = 'lorabiz-drag-overlay';
     dragHandle.style.setProperty('position', 'absolute', 'important');
@@ -98,58 +95,59 @@
     dragHandle.style.setProperty('z-index', '10', 'important');
     dragHandle.style.setProperty('background', 'transparent', 'important');
     dragHandle.style.setProperty('pointer-events', 'auto', 'important');
+    dragHandle.style.setProperty('touch-action', 'none', 'important');
     dragHandle.setAttribute('title', 'Drag to move or click to open');
 
-    let isPointerDown = false;
-    let hasDragged = false;
-    let startPointerX = 0;
-    let startPointerY = 0;
-    let startRight = currentPos.right;
-    let startBottom = currentPos.bottom;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startRight = 0;
+    let startBottom = 0;
+    let activePointerId = null;
 
-    function onPointerDown(e) {
+    function handlePointerDown(e) {
       if (isWidgetOpen) return;
-      isPointerDown = true;
-      hasDragged = false;
-      startPointerX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-      startPointerY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+      if (e.button !== undefined && e.button !== 0) return; // Primary mouse button only
+
+      isDragging = false;
+      activePointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
       startRight = currentPos.right;
       startBottom = currentPos.bottom;
 
-      container.style.setProperty('transition', 'none', 'important');
+      // Disable iframe pointer events during drag to prevent trapping mousemove
+      iframe.style.setProperty('pointer-events', 'none', 'important');
       dragHandle.style.setProperty('cursor', 'grabbing', 'important');
 
-      window.addEventListener('pointermove', onPointerMove, { passive: false });
-      window.addEventListener('pointerup', onPointerUp);
-      window.addEventListener('touchmove', onPointerMove, { passive: false });
-      window.addEventListener('touchend', onPointerUp);
+      try {
+        dragHandle.setPointerCapture(e.pointerId);
+      } catch (err) {}
+
+      dragHandle.addEventListener('pointermove', handlePointerMove);
+      dragHandle.addEventListener('pointerup', handlePointerUp);
+      dragHandle.addEventListener('pointercancel', handlePointerUp);
     }
 
-    function onPointerMove(e) {
-      if (!isPointerDown) return;
-      const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-      const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+    function handlePointerMove(e) {
+      if (activePointerId === null || e.pointerId !== activePointerId) return;
 
-      const deltaX = clientX - startPointerX;
-      const deltaY = clientY - startPointerY;
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
 
-      if (!hasDragged && Math.hypot(deltaX, deltaY) > 5) {
-        hasDragged = true;
+      if (!isDragging && (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4)) {
+        isDragging = true;
       }
 
-      if (hasDragged) {
-        if (e.cancelable) e.preventDefault();
-
-        // Calculate new right and bottom coordinates
+      if (isDragging) {
         let newRight = startRight - deltaX;
         let newBottom = startBottom - deltaY;
 
-        // Clamp inside window boundaries
-        const maxRight = Math.max(10, window.innerWidth - CLOSED_SIZE - 10);
-        const maxBottom = Math.max(10, window.innerHeight - CLOSED_SIZE - 10);
+        const maxRight = Math.max(8, window.innerWidth - CLOSED_SIZE - 8);
+        const maxBottom = Math.max(8, window.innerHeight - CLOSED_SIZE - 8);
 
-        newRight = Math.min(Math.max(10, newRight), maxRight);
-        newBottom = Math.min(Math.max(10, newBottom), maxBottom);
+        newRight = Math.min(Math.max(8, newRight), maxRight);
+        newBottom = Math.min(Math.max(8, newBottom), maxBottom);
 
         currentPos = { right: newRight, bottom: newBottom };
         container.style.setProperty('right', newRight + 'px', 'important');
@@ -157,30 +155,32 @@
       }
     }
 
-    function onPointerUp() {
-      if (!isPointerDown) return;
-      isPointerDown = false;
+    function handlePointerUp(e) {
+      if (activePointerId !== null && e.pointerId === activePointerId) {
+        try {
+          dragHandle.releasePointerCapture(e.pointerId);
+        } catch (err) {}
 
-      dragHandle.style.setProperty('cursor', 'grab', 'important');
-      container.style.setProperty('transition', 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 'important');
+        dragHandle.removeEventListener('pointermove', handlePointerMove);
+        dragHandle.removeEventListener('pointerup', handlePointerUp);
+        dragHandle.removeEventListener('pointercancel', handlePointerUp);
 
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('touchmove', onPointerMove);
-      window.removeEventListener('touchend', onPointerUp);
+        activePointerId = null;
+        dragHandle.style.setProperty('cursor', 'grab', 'important');
+        iframe.style.setProperty('pointer-events', 'auto', 'important');
 
-      if (hasDragged) {
-        savePosition(currentPos);
-      } else {
-        // Simple tap / click -> open widget
-        if (iframe.contentWindow) {
-          iframe.contentWindow.postMessage('LORA_TOGGLE_OPEN', '*');
+        if (isDragging) {
+          savePosition(currentPos);
+        } else {
+          // Normal click -> Open widget
+          if (iframe.contentWindow) {
+            iframe.contentWindow.postMessage('LORA_TOGGLE_OPEN', '*');
+          }
         }
       }
     }
 
-    dragHandle.addEventListener('pointerdown', onPointerDown);
-    dragHandle.addEventListener('touchstart', onPointerDown, { passive: true });
+    dragHandle.addEventListener('pointerdown', handlePointerDown);
 
     container.appendChild(iframe);
     container.appendChild(dragHandle);
@@ -191,16 +191,16 @@
     window.LORA_INIT_WIDGET(window.lorabizUserAuthData);
   }
 
-  // Handle window resize to keep widget on screen
+  // Handle window resize boundary clamping
   window.addEventListener('resize', function () {
     const container = document.getElementById('lorabiz-support-widget-container');
     if (!container || isWidgetOpen) return;
 
-    const maxRight = Math.max(10, window.innerWidth - CLOSED_SIZE - 10);
-    const maxBottom = Math.max(10, window.innerHeight - CLOSED_SIZE - 10);
+    const maxRight = Math.max(8, window.innerWidth - CLOSED_SIZE - 8);
+    const maxBottom = Math.max(8, window.innerHeight - CLOSED_SIZE - 8);
 
-    currentPos.right = Math.min(Math.max(10, currentPos.right), maxRight);
-    currentPos.bottom = Math.min(Math.max(10, currentPos.bottom), maxBottom);
+    currentPos.right = Math.min(Math.max(8, currentPos.right), maxRight);
+    currentPos.bottom = Math.min(Math.max(8, currentPos.bottom), maxBottom);
 
     container.style.setProperty('right', currentPos.right + 'px', 'important');
     container.style.setProperty('bottom', currentPos.bottom + 'px', 'important');
@@ -239,7 +239,6 @@
         const OPEN_WIDTH = 400;
         const OPEN_HEIGHT = 650;
 
-        // Position open window comfortably within screen bounds
         let openRight = currentPos.right;
         let openBottom = currentPos.bottom;
 
