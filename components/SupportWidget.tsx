@@ -468,7 +468,7 @@ export default function SupportWidget() {
   const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
 
   return (
-    <div className="w-full h-full flex flex-col justify-end items-end overflow-hidden select-none bg-transparent">
+    <div className="w-full h-full flex flex-col justify-end items-end select-none bg-transparent">
       
       {/* 🚀 IMAGE LIGHTBOX MODAL 🚀 */}
       {lightboxImage && (

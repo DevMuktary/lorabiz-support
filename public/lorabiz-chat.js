@@ -2,7 +2,7 @@
   if (window.LORA_INIT_WIDGET) return;
 
   const STORAGE_POS_KEY = 'lorabiz_support_widget_pos';
-  const CLOSED_SIZE = 76; // compact size in px for launcher bubble
+  const CLOSED_SIZE = 60; // Exact size matching 60px launcher button
 
   function getSavedPosition() {
     try {
@@ -19,7 +19,7 @@
         }
       }
     } catch (e) {}
-    return { right: 24, bottom: 24 };
+    return { right: 20, bottom: 20 };
   }
 
   function savePosition(pos) {
@@ -122,7 +122,7 @@
     const dragHandle = document.createElement('div');
     dragHandle.id = 'lorabiz-drag-overlay';
     dragHandle.style.setProperty('position', 'absolute', 'important');
-    dragHandle.style.setProperty('inset', '8px', 'important');
+    dragHandle.style.setProperty('inset', '0', 'important');
     dragHandle.style.setProperty('border-radius', '50%', 'important');
     dragHandle.style.setProperty('cursor', 'grab', 'important');
     dragHandle.style.setProperty('z-index', '10', 'important');
@@ -306,39 +306,30 @@
 
       container.style.setProperty('pointer-events', 'auto', 'important');
 
-      if (window.innerWidth <= 640) {
-        container.style.setProperty('width', '100%', 'important');
-        container.style.setProperty('height', '100%', 'important');
-        container.style.setProperty('max-width', '100%', 'important');
-        container.style.setProperty('max-height', '100%', 'important');
-        container.style.setProperty('bottom', '0', 'important');
-        container.style.setProperty('right', '0', 'important');
-        container.style.setProperty('top', '0', 'important');
-        container.style.setProperty('left', '0', 'important');
-      } else {
-        const OPEN_WIDTH = 400;
-        const OPEN_HEIGHT = 650;
+      // Floating card on ALL devices - NEVER takes over top:0 or browser status bar
+      const isMobile = window.innerWidth <= 640;
+      const OPEN_WIDTH = isMobile ? Math.min(380, window.innerWidth - 24) : 390;
+      const OPEN_HEIGHT = isMobile ? Math.min(580, window.innerHeight - 80) : 600;
 
-        let openRight = currentPos.right;
-        let openBottom = currentPos.bottom;
+      let openRight = currentPos.right;
+      let openBottom = currentPos.bottom;
 
-        if (openRight + OPEN_WIDTH > window.innerWidth - 12) {
-          openRight = Math.max(12, window.innerWidth - OPEN_WIDTH - 12);
-        }
-        if (openBottom + OPEN_HEIGHT > window.innerHeight - 12) {
-          openBottom = Math.max(12, window.innerHeight - OPEN_HEIGHT - 12);
-        }
-
-        container.style.removeProperty('top');
-        container.style.removeProperty('left');
-        container.style.removeProperty('inset');
-        container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
-        container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
-        container.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
-        container.style.setProperty('max-height', 'calc(100vh - 16px)', 'important');
-        container.style.setProperty('bottom', openBottom + 'px', 'important');
-        container.style.setProperty('right', openRight + 'px', 'important');
+      if (openRight + OPEN_WIDTH > window.innerWidth - 12) {
+        openRight = Math.max(12, window.innerWidth - OPEN_WIDTH - 12);
       }
+      if (openBottom + OPEN_HEIGHT > window.innerHeight - 12) {
+        openBottom = Math.max(12, window.innerHeight - OPEN_HEIGHT - 12);
+      }
+
+      container.style.removeProperty('top');
+      container.style.removeProperty('left');
+      container.style.removeProperty('inset');
+      container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
+      container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
+      container.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
+      container.style.setProperty('max-height', 'calc(100vh - 40px)', 'important');
+      container.style.setProperty('bottom', openBottom + 'px', 'important');
+      container.style.setProperty('right', openRight + 'px', 'important');
     }
   });
 })();

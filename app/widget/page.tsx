@@ -8,7 +8,6 @@ export default function WidgetPage() {
         html, body { 
           background-color: transparent !important; 
           background: transparent !important; 
-          overflow: hidden !important;
           margin: 0 !important;
           padding: 0 !important;
           width: 100% !important;
@@ -16,7 +15,7 @@ export default function WidgetPage() {
           color-scheme: inherit !important;
         }
       `}} />
-      <main className="w-full h-full bg-transparent overflow-hidden">
+      <main className="w-full h-full bg-transparent">
         <SupportWidget />
       </main>
     </>
