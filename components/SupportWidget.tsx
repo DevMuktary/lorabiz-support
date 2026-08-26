@@ -447,7 +447,7 @@ export default function SupportWidget() {
   const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
 
   return (
-    <div className={`w-full h-full ${isOpen ? 'fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none' : 'flex items-center justify-center p-2 pointer-events-auto select-none'}`}>
+    <div className="w-full h-full flex flex-col justify-end items-end overflow-hidden select-none">
       
       {/* 🚀 IMAGE LIGHTBOX MODAL 🚀 */}
       {lightboxImage && (
@@ -472,7 +472,7 @@ export default function SupportWidget() {
       )}
 
       {isOpen && (
-        <div className="w-full h-full sm:w-[400px] sm:h-[650px] sm:mb-4 bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5 relative overscroll-contain">
+        <div className="w-full h-full bg-white sm:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden pointer-events-auto border-0 sm:border border-gray-200 animate-in slide-in-from-bottom-5 relative overscroll-contain">
           
           {dialog?.isOpen && (
             <div className="absolute inset-0 z-[100] bg-black/40 flex items-center justify-center p-4 backdrop-blur-[2px] animate-in fade-in duration-200">

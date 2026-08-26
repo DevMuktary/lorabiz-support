@@ -57,7 +57,7 @@
 
     currentPos = getSavedPosition();
 
-    // Floating Container - Self-contained, does not affect dashboard flow
+    // Floating Container - Self-contained, isolated from host page styles
     const container = document.createElement('div');
     container.id = 'lorabiz-support-widget-container';
     
@@ -66,12 +66,20 @@
     container.style.setProperty('right', currentPos.right + 'px', 'important');
     container.style.setProperty('width', CLOSED_SIZE + 'px', 'important'); 
     container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
+    container.style.setProperty('max-width', CLOSED_SIZE + 'px', 'important');
+    container.style.setProperty('max-height', CLOSED_SIZE + 'px', 'important');
+    container.style.setProperty('margin', '0', 'important');
+    container.style.setProperty('padding', '0', 'important');
+    container.style.setProperty('box-sizing', 'border-box', 'important');
     container.style.setProperty('z-index', '2147483647', 'important'); 
     container.style.setProperty('border', 'none', 'important');
+    container.style.setProperty('outline', 'none', 'important');
     container.style.setProperty('background', 'transparent', 'important');
+    container.style.setProperty('overflow', 'visible', 'important');
     container.style.setProperty('pointer-events', 'auto', 'important');
     container.style.setProperty('user-select', 'none', 'important');
     container.style.setProperty('-webkit-user-select', 'none', 'important');
+    container.style.setProperty('isolation', 'isolate', 'important');
 
     const iframe = document.createElement('iframe');
     iframe.src = widgetUrl; 
@@ -81,10 +89,14 @@
     
     iframe.style.setProperty('width', '100%', 'important');
     iframe.style.setProperty('height', '100%', 'important');
+    iframe.style.setProperty('margin', '0', 'important');
+    iframe.style.setProperty('padding', '0', 'important');
+    iframe.style.setProperty('box-sizing', 'border-box', 'important');
     iframe.style.setProperty('border', 'none', 'important');
     iframe.style.setProperty('background-color', 'transparent', 'important');
     iframe.style.setProperty('pointer-events', 'auto', 'important'); 
     iframe.style.setProperty('color-scheme', 'normal', 'important');
+    iframe.style.setProperty('display', 'block', 'important');
 
     // Drag Handle Overlay on top of iframe when closed
     const dragHandle = document.createElement('div');
@@ -116,7 +128,6 @@
       startRight = currentPos.right;
       startBottom = currentPos.bottom;
 
-      // Disable iframe pointer events during drag to prevent trapping mousemove
       iframe.style.setProperty('pointer-events', 'none', 'important');
       dragHandle.style.setProperty('cursor', 'grabbing', 'important');
       container.style.setProperty('transition', 'none', 'important');
@@ -128,6 +139,8 @@
       dragHandle.addEventListener('pointermove', handlePointerMove);
       dragHandle.addEventListener('pointerup', handlePointerUp);
       dragHandle.addEventListener('pointercancel', handlePointerUp);
+      window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener('pointercancel', handlePointerUp);
     }
 
     function handlePointerMove(e) {
@@ -157,14 +170,16 @@
     }
 
     function handlePointerUp(e) {
-      if (activePointerId !== null && e.pointerId === activePointerId) {
+      if (activePointerId !== null && (e.pointerId === undefined || e.pointerId === activePointerId)) {
         try {
-          dragHandle.releasePointerCapture(e.pointerId);
+          dragHandle.releasePointerCapture(activePointerId);
         } catch (err) {}
 
         dragHandle.removeEventListener('pointermove', handlePointerMove);
         dragHandle.removeEventListener('pointerup', handlePointerUp);
         dragHandle.removeEventListener('pointercancel', handlePointerUp);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerUp);
 
         activePointerId = null;
         dragHandle.style.setProperty('cursor', 'grab', 'important');
@@ -219,27 +234,39 @@
   window.addEventListener('message', function (event) {
     const container = document.getElementById('lorabiz-support-widget-container');
     const dragOverlay = document.getElementById('lorabiz-drag-overlay');
+    const iframe = document.getElementById('lorabiz-support-iframe');
     if (!container) return;
 
     if (event.data === 'LORA_WIDGET_CLOSED') {
       isWidgetOpen = false;
-      if (dragOverlay) dragOverlay.style.setProperty('display', 'block', 'important');
+      if (dragOverlay) {
+        dragOverlay.style.setProperty('display', 'block', 'important');
+        dragOverlay.style.setProperty('pointer-events', 'auto', 'important');
+      }
 
+      container.style.removeProperty('top');
+      container.style.removeProperty('left');
       container.style.setProperty('width', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
+      container.style.setProperty('max-width', CLOSED_SIZE + 'px', 'important');
+      container.style.setProperty('max-height', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('bottom', currentPos.bottom + 'px', 'important');
       container.style.setProperty('right', currentPos.right + 'px', 'important');
-      container.style.setProperty('top', 'auto', 'important');
-      container.style.setProperty('left', 'auto', 'important');
+      container.style.setProperty('pointer-events', 'auto', 'important');
+      if (iframe) iframe.style.setProperty('pointer-events', 'auto', 'important');
     }
     
     if (event.data === 'LORA_WIDGET_OPENED') {
       isWidgetOpen = true;
-      if (dragOverlay) dragOverlay.style.setProperty('display', 'none', 'important');
+      if (dragOverlay) {
+        dragOverlay.style.setProperty('display', 'none', 'important');
+      }
 
       if (window.innerWidth <= 640) {
         container.style.setProperty('width', '100vw', 'important');
         container.style.setProperty('height', '100dvh', 'important');
+        container.style.setProperty('max-width', '100vw', 'important');
+        container.style.setProperty('max-height', '100dvh', 'important');
         container.style.setProperty('bottom', '0', 'important');
         container.style.setProperty('right', '0', 'important');
         container.style.setProperty('top', '0', 'important');
@@ -258,12 +285,14 @@
           openBottom = Math.max(12, window.innerHeight - OPEN_HEIGHT - 12);
         }
 
+        container.style.removeProperty('top');
+        container.style.removeProperty('left');
         container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
         container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
+        container.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
+        container.style.setProperty('max-height', 'calc(100vh - 16px)', 'important');
         container.style.setProperty('bottom', openBottom + 'px', 'important');
         container.style.setProperty('right', openRight + 'px', 'important');
-        container.style.setProperty('top', 'auto', 'important');
-        container.style.setProperty('left', 'auto', 'important');
       }
     }
   });
