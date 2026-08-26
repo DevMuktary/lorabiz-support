@@ -552,67 +552,69 @@ export default function SupportWidget() {
                  <div className="flex-1 flex flex-col min-h-0 bg-[#F8FAFC]">
                    
                    {isChatLoading ? (
-                     <div className="flex-1 p-5 flex flex-col space-y-4">
+                     <div className="flex-1 p-5 flex flex-col space-y-4 justify-end">
                        <div className="flex justify-start animate-pulse"><div className="bg-gray-200 w-2/3 h-12 rounded-2xl rounded-bl-sm"></div></div>
                        <div className="flex justify-end animate-pulse mt-4"><div className="bg-gray-300 w-1/2 h-10 rounded-2xl rounded-br-sm"></div></div>
                        <div className="flex justify-start animate-pulse mt-4"><div className="bg-gray-200 w-3/4 h-16 rounded-2xl rounded-bl-sm"></div></div>
                      </div>
                    ) : (
-                     <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-5 relative custom-scrollbar">
-                        {messages.map((msg) => {
-                          const isUser = msg.senderType === 'CUSTOMER';
-                          const isSystem = msg.senderType === 'SYSTEM';
+                     <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 relative custom-scrollbar flex flex-col">
+                        <div className="mt-auto space-y-4 flex flex-col justify-end">
+                          {messages.map((msg) => {
+                            const isUser = msg.senderType === 'CUSTOMER';
+                            const isSystem = msg.senderType === 'SYSTEM';
 
-                          if (isSystem) {
-                            if (msg.content.includes('[System: Customer Onboarded]')) return null;
+                            if (isSystem) {
+                              if (msg.content.includes('[System: Customer Onboarded]')) return null;
+                              return (
+                                <div key={msg.$id} className="text-center my-2">
+                                  <span className="text-[12px] text-gray-500 font-medium bg-gray-200/80 px-3.5 py-1 rounded-full inline-block text-center shadow-xs max-w-[90%] whitespace-pre-wrap">{msg.content}</span>
+                                </div>
+                              );
+                            }
+
                             return (
-                              <div key={msg.$id} className="text-center my-3">
-                                <span className="text-[13px] text-gray-500 font-medium bg-gray-200 px-4 py-1.5 rounded-full inline-block text-center shadow-sm max-w-[90%] whitespace-pre-wrap">{msg.content}</span>
+                              <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-xs ${isUser ? 'bg-[#8B2D75] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
+                                  
+                                  {/* 🚀 ATTACHMENT RENDERER WITH PDF FALLBACK 🚀 */}
+                                  {msg.attachmentUrl && (
+                                    <div className="mb-2">
+                                      <img 
+                                        src={msg.attachmentUrl} 
+                                        alt="Attachment" 
+                                        className="max-w-full rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity max-h-[200px] object-cover" 
+                                        onClick={() => setLightboxImage(msg.attachmentUrl!)}
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none';
+                                          e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                      />
+                                      <a 
+                                        href={msg.attachmentUrl} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="hidden flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors text-gray-800 border border-gray-200"
+                                      >
+                                        📄 View Document
+                                      </a>
+                                    </div>
+                                  )}
+
+                                  {msg.content && <span>{msg.content}</span>}
+                                </div>
                               </div>
                             );
-                          }
-
-                          return (
-                            <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed shadow-sm ${isUser ? 'bg-[#8B2D75] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
-                                
-                                {/* 🚀 ATTACHMENT RENDERER WITH PDF FALLBACK 🚀 */}
-                                {msg.attachmentUrl && (
-                                  <div className="mb-2">
-                                    <img 
-                                      src={msg.attachmentUrl} 
-                                      alt="Attachment" 
-                                      className="max-w-full rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity max-h-[200px] object-cover" 
-                                      onClick={() => setLightboxImage(msg.attachmentUrl!)}
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                      }}
-                                    />
-                                    <a 
-                                      href={msg.attachmentUrl} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer" 
-                                      className="hidden flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors text-gray-800 border border-gray-200"
-                                    >
-                                      📄 View Document
-                                    </a>
-                                  </div>
-                                )}
-
-                                {msg.content && <span>{msg.content}</span>}
+                          })}
+                          {isTyping && (
+                            <div className="flex justify-start">
+                              <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3 flex space-x-1.5 items-center">
+                                <div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce"></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                               </div>
                             </div>
-                          );
-                        })}
-                        {isTyping && (
-                          <div className="flex justify-start">
-                            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-5 py-4 flex space-x-1.5 items-center">
-                              <div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce"></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div><div className="w-2 h-2 bg-[#8B2D75] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                            </div>
-                          </div>
-                        )}
-                        <div ref={messagesEndRef} />
+                          )}
+                          <div ref={messagesEndRef} />
+                        </div>
                      </div>
                    )}
 

@@ -154,7 +154,7 @@ export default function ChatArea({
         </header>
 
         {/* FEED AREA */}
-        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative flex flex-col">
           {isFetchingChat ? (
             <div className="animate-pulse space-y-6 flex flex-col justify-end h-full">
               <div className="flex justify-start"><div className="bg-white/5 w-2/3 h-16 rounded-2xl"></div></div>
@@ -162,7 +162,7 @@ export default function ChatArea({
               <div className="flex justify-start"><div className="bg-white/5 w-3/4 h-12 rounded-2xl"></div></div>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="mt-auto space-y-6 flex flex-col justify-end">
               {cleanMessages.map((msg) => {
                 const isInternal = msg.content.startsWith('[INTERNAL NOTE]');
                 const displayContent = isInternal ? msg.content.replace('[INTERNAL NOTE]:', '').trim() : msg.content;
