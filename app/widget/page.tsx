@@ -14,7 +14,7 @@ export default function WidgetPage() {
           background: transparent !important; 
         }
       `}} />
-      <main className="w-full h-full bg-transparent overflow-hidden">
+      <main className="w-full h-full bg-transparent overflow-visible">
         <SupportWidget />
       </main>
     </>

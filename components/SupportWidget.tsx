@@ -70,6 +70,18 @@ export default function SupportWidget() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useEffect(() => {
+    const handleParentMessage = (event: MessageEvent) => {
+      if (event.data === 'LORA_TOGGLE_OPEN') {
+        toggleWidget(true);
+      } else if (event.data === 'LORA_TOGGLE_CLOSE') {
+        toggleWidget(false);
+      }
+    };
+    window.addEventListener('message', handleParentMessage);
+    return () => window.removeEventListener('message', handleParentMessage);
+  }, []);
+
+  useEffect(() => {
     const initFromUrl = async () => {
       const params = new URLSearchParams(window.location.search);
       const urlUserId = params.get('userId');
@@ -93,7 +105,24 @@ export default function SupportWidget() {
             if (data.allTickets) setHistoryTickets(data.allTickets);
             if (data.ticketId) {
               setActiveTicketId(data.ticketId);
-              setMessages(data.messages || []);
+              const msgs = data.messages || [];
+              setMessages(msgs);
+
+              // Check unread count on initial load if widget is closed
+              if (!isOpenRef.current && msgs.length > 0) {
+                try {
+                  const lastReadStr = typeof window !== 'undefined' ? localStorage.getItem(`lorabiz_last_read_${urlUserId || 'guest'}`) : null;
+                  const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
+                  const incomingMsgs = msgs.filter((m: any) => m.senderType !== 'CUSTOMER');
+                  
+                  if (lastReadTime > 0) {
+                    const unread = incomingMsgs.filter((m: any) => new Date(m.$createdAt).getTime() > lastReadTime);
+                    setUnreadCount(unread.length);
+                  } else if (incomingMsgs.length > 0) {
+                    setUnreadCount(Math.min(incomingMsgs.length, 9));
+                  }
+                } catch (e) {}
+              }
             }
           }
         } catch (err) {}
@@ -122,12 +151,12 @@ export default function SupportWidget() {
           const newMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id));
           const newReplies = newMsgs.filter((m: any) => m.senderType !== 'CUSTOMER');
           
-          // 🚀 THE FIX: Smart Unread Counter Logic 🚀
+          // 🚀 Smart Unread Counter Logic 🚀
           if (!isOpenRef.current && data.messages.length > 0) {
               if (messagesRef.current.length === 0) {
-                  const lastMsg = data.messages[data.messages.length - 1];
-                  if (lastMsg && lastMsg.senderType !== 'CUSTOMER') {
-                      setUnreadCount(1);
+                  const incoming = data.messages.filter((m: any) => m.senderType !== 'CUSTOMER');
+                  if (incoming.length > 0) {
+                      setUnreadCount(incoming.length);
                   }
               } else if (newReplies.length > 0) {
                   setUnreadCount(count => count + newReplies.length);
@@ -145,7 +174,6 @@ export default function SupportWidget() {
           if (data.ticketStatus) {
             if (data.ticketStatus === 'CLOSED') {
                clearInterval(intervalId); // Stop polling
-               // REMOVED: The forced kick-out so the user can read the final closing message.
             }
 
             setHistoryTickets(prev => {
@@ -171,10 +199,21 @@ export default function SupportWidget() {
   };
   useEffect(() => { scrollToBottom(); }, [messages.length, isTyping, view, isOpen]);
 
+  const markAsRead = () => {
+    setUnreadCount(0);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`lorabiz_last_read_${authUserId || 'guest'}`, Date.now().toString());
+      }
+    } catch (e) {}
+  };
+
   const toggleWidget = (newState: boolean) => {
     setIsOpen(newState);
-    if (newState) setUnreadCount(0); // Clear badge completely when opened
-    if (newState && !activeTicketId) setView('HUB');
+    if (newState) {
+      markAsRead();
+      if (!activeTicketId) setView('HUB');
+    }
     if (typeof window !== 'undefined' && window.parent) {
       window.parent.postMessage(newState ? 'LORA_WIDGET_OPENED' : 'LORA_WIDGET_CLOSED', '*');
     }
@@ -307,7 +346,7 @@ export default function SupportWidget() {
   const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
 
   return (
-    <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none">
+    <div className={`w-full h-full ${isOpen ? 'fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-[99999] flex flex-col items-end sm:p-6 pointer-events-none' : 'flex items-center justify-center p-2 pointer-events-auto select-none'}`}>
       
       {/* 🚀 IMAGE LIGHTBOX MODAL 🚀 */}
       {lightboxImage && (
@@ -589,21 +628,34 @@ export default function SupportWidget() {
         </div>
       )}
 
-      <div className={`absolute bottom-6 right-6 sm:relative sm:bottom-0 sm:right-0 sm:p-0 pointer-events-auto transition-opacity duration-200 ${isOpen ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
-        <button
-          onClick={() => toggleWidget(true)}
-          className="relative w-[65px] h-[65px] sm:w-[75px] sm:h-[75px] rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.25)] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border-[3px] bg-white border-[#8B2D75] overflow-visible p-0"
-        >
-          <img src="/support.png" alt="Support" className="w-full h-full object-cover rounded-full" />
-          
-          {/* 🚀 THE FIX: Dynamic Unread Number Badge 🚀 */}
-          {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 border-2 border-white rounded-full shadow-md flex items-center justify-center text-[11px] font-extrabold text-white animate-bounce">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </button>
-      </div>
+      {!isOpen && (
+        <div className="w-full h-full flex items-center justify-center pointer-events-auto">
+          <button
+            onClick={() => toggleWidget(true)}
+            aria-label="Open support chat"
+            className="group relative w-[64px] h-[64px] rounded-full aspect-square bg-white border-[3px] border-[#8B2D75] shadow-[0_8px_25px_rgba(0,0,0,0.22)] flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none focus:ring-4 focus:ring-[#8B2D75]/20"
+          >
+            {/* Circular Avatar Container */}
+            <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center p-[2px] bg-white">
+              <img 
+                src="/support.png" 
+                alt="LoraBiz Support" 
+                className="w-full h-full object-cover object-top rounded-full select-none pointer-events-none" 
+              />
+            </div>
+
+            {/* Online status indicator */}
+            <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-sm" title="Agent Online"></span>
+            
+            {/* 🚀 Dynamic Unread Number Badge 🚀 */}
+            {unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1.5 bg-gradient-to-r from-red-500 to-rose-600 border-2 border-white rounded-full shadow-lg flex items-center justify-center text-[11px] font-black text-white leading-none animate-bounce z-20">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
