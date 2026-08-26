@@ -29,12 +29,60 @@ export async function POST(req: Request) {
     if (action === 'CLOSE_TICKET') {
       if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
       try {
-        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, { status: 'CLOSED' });
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, { status: 'CLOSED', customerTyping: false });
         await databases.createDocument(DATABASE_ID, MESSAGES_COLLECTION_ID, ID.unique(), {
           ticketId, senderType: 'SYSTEM', senderId: 'LORA_SYSTEM', senderName: 'System',
           sourceChannel: 'IN_APP', content: 'Conversation ended by the user.',
         }, securePermissions);
         return NextResponse.json({ status: 'SUCCESS' });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    if (action === 'SUBMIT_RATING') {
+      const { rating, feedback } = body;
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+          rating: Number(rating) || 5,
+          ratingFeedback: feedback || '',
+        });
+        return NextResponse.json({ status: 'SUCCESS' });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    if (action === 'TYPING_STATUS') {
+      const { isTyping: typingVal } = body;
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        await databases.updateDocument(DATABASE_ID, TICKETS_COLLECTION_ID, ticketId, {
+          customerTyping: !!typingVal,
+        });
+        return NextResponse.json({ status: 'SUCCESS' });
+      } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    if (action === 'AI_SUGGEST') {
+      if (!ticketId) return NextResponse.json({ error: 'Missing ticketId' }, { status: 400 });
+      try {
+        const historyDocs = await databases.listDocuments(DATABASE_ID, MESSAGES_COLLECTION_ID, [
+          Query.equal('ticketId', ticketId), Query.orderAsc('$createdAt'), Query.limit(50),
+        ]);
+        const formattedHistory = historyDocs.documents.map((doc) => ({
+          senderType: doc.senderType, content: doc.content || '[Attachment]',
+        }));
+        const suggestionPrompt = [
+          ...formattedHistory,
+          { senderType: 'SYSTEM', content: 'Generate a professional, courteous, concise reply on behalf of the human support agent addressing the customer inquiry.' }
+        ];
+        const draft = await processTicketWithAI(ticketId, suggestionPrompt);
+        const cleanDraft = draft.replace(/TRIGGER_HANDOVER|\[DIRECT_TRANSFER\]/g, '').trim();
+        return NextResponse.json({ status: 'SUCCESS', suggestion: cleanDraft });
       } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
       }

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Ticket, Message } from '@/types/dashboard';
 import TicketContext from './TicketContext';
-import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X, Zap } from 'lucide-react';
+import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X, Zap, Sparkles, Download, Copy, Check } from 'lucide-react';
 
 const CANNED_RESPONSES = [
   { label: 'Greeting', text: 'Hello! Thank you for reaching out to LoraBiz Support. How can I assist you today?' },
@@ -32,10 +32,11 @@ export default function ChatArea({
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [showMobileContext, setShowMobileContext] = useState(false); 
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [isGeneratingAiSuggest, setIsGeneratingAiSuggest] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [dialog, setDialog] = useState<{ isOpen: boolean, title: string, message: string, action: () => void } | null>(null);
 
-  // 🚀 NEW FILE STATE 🚀
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,6 +52,60 @@ export default function ChatArea({
     if (text.includes('SYSTEM DIRECTIVE:')) return false; 
     return true;
   });
+
+  const handleCopyText = (id: string, text: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedMessageId(id);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    }
+  };
+
+  const handleAiSuggest = async () => {
+    setIsGeneratingAiSuggest(true);
+    try {
+      const res = await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'AI_SUGGEST', ticketId: ticket.$id })
+      });
+      const data = await res.json();
+      if (data.suggestion) {
+        setReplyContent(data.suggestion);
+      }
+    } catch (e) {
+    } finally {
+      setIsGeneratingAiSuggest(false);
+    }
+  };
+
+  const handleExportTranscript = () => {
+    const header = `=== LORABIZ SUPPORT CHAT TRANSCRIPT ===\nTicket ID: ${ticket.$id}\nCustomer: ${ticket.customerEmail || ticket.customerPhone || 'Guest'}\nChannel: ${ticket.sourceChannel}\nDate: ${new Date(ticket.$createdAt).toLocaleString()}\n=======================================\n\n`;
+    const body = messages.map(m => {
+      const time = new Date(m.$createdAt).toLocaleTimeString();
+      const sender = m.senderType === 'CUSTOMER' ? 'Customer' : m.senderType === 'AGENT' ? `Agent (${m.senderName})` : m.senderType === 'ASSISTANT' ? 'Lora AI' : 'System';
+      return `[${time}] ${sender}: ${m.content || '[Attachment]'}`;
+    }).join('\n\n');
+
+    const blob = new Blob([header + body], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ticket-${ticket.$id.slice(-6)}-transcript.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if ((replyContent.trim() || selectedFile) && !loading) {
+        handleSubmit(e as any);
+      }
+    } else if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+      e.preventDefault();
+      setIsInternalNote(prev => !prev);
+    }
+  };
 
   const handleScroll = () => {
     if (scrollContainerRef.current) {
@@ -168,8 +223,8 @@ export default function ChatArea({
                 const displayContent = isInternal ? msg.content.replace('[INTERNAL NOTE]:', '').trim() : msg.content;
                 
                 return (
-                  <div key={msg.$id} className={`flex flex-col ${msg.senderType === 'AGENT' || isInternal ? 'items-end' : 'items-start'}`}>
-                    <div className={`max-w-[85%] md:max-w-[70%] p-4 text-[15px] flex flex-col ${
+                  <div key={msg.$id} className={`flex flex-col group/msg ${msg.senderType === 'AGENT' || isInternal ? 'items-end' : 'items-start'}`}>
+                    <div className={`max-w-[85%] md:max-w-[70%] p-4 text-[15px] flex flex-col relative group ${
                         isInternal
                           ? 'bg-amber-900/40 text-amber-100 border border-amber-500/30 rounded-2xl rounded-tr-sm' 
                         : msg.senderType === 'AGENT'
@@ -191,10 +246,9 @@ export default function ChatArea({
                           <img 
                             src={msg.attachmentUrl} 
                             alt="Attachment" 
-                            className="max-w-full rounded-xl border border-white/10 cursor-pointer hover:opacity-80 transition-opacity" 
+                            className="max-w-full rounded-lg border border-white/10 cursor-pointer hover:opacity-80 transition-opacity max-h-[250px] object-cover" 
                             onClick={() => setLightboxImage(msg.attachmentUrl!)}
                             onError={(e) => {
-                              // If it fails to load as an image, it's likely a PDF. Hide the broken image tag and show the link.
                               e.currentTarget.style.display = 'none';
                               e.currentTarget.nextElementSibling?.classList.remove('hidden');
                             }}
@@ -203,15 +257,27 @@ export default function ChatArea({
                             href={msg.attachmentUrl} 
                             target="_blank" 
                             rel="noopener noreferrer" 
-                            className="hidden flex items-center justify-center gap-2 px-4 py-3 bg-white/10 rounded-xl text-sm font-medium hover:bg-white/20 transition-colors text-white border border-white/10"
+                            className="hidden flex items-center justify-center gap-2 p-3 bg-white/5 rounded-lg text-sm font-medium hover:bg-white/10 transition-colors text-white border border-white/10"
                           >
                             📄 View Document
                           </a>
                         </div>
                       )}
 
-                      {msg.content && <span className="leading-relaxed whitespace-pre-wrap">{displayContent}</span>}
+                      {msg.content && <span className="leading-relaxed break-words whitespace-pre-wrap">{displayContent}</span>}
                       
+                      {/* Copy message button */}
+                      {msg.content && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(msg.$id, displayContent)}
+                          title="Copy text"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-3 right-2 bg-[#0d152b] border border-white/10 p-1.5 rounded-lg text-gray-400 hover:text-white shadow-lg text-xs flex items-center gap-1"
+                        >
+                          {copiedMessageId === msg.$id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      )}
+
                       <span className={`block text-[10px] font-bold mt-2 uppercase tracking-wider opacity-60 ${msg.senderType === 'AGENT' || isInternal ? 'text-right' : 'text-left'}`}>
                         {msg.senderName} • {new Date(msg.$createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -243,12 +309,30 @@ export default function ChatArea({
           {ticket.status === 'IN_PROGRESS' ? (
             <form onSubmit={handleSubmit} className="flex flex-col gap-3 max-w-4xl mx-auto">
               
-              {/* Note Toggle & Selected File Preview */}
+              {/* Note Toggle, AI Copilot, Quick Replies */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
-                <div className="flex items-center gap-2 relative">
+                <div className="flex items-center gap-2 relative flex-wrap">
                   <button type="button" onClick={() => { setIsInternalNote(false); setShowQuickReplies(false); }} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors ${!isInternalNote ? 'bg-white/10 text-white' : 'text-gray-500 hover:bg-white/5'}`}>Reply Customer</button>
                   <button type="button" onClick={() => { setIsInternalNote(true); setShowQuickReplies(false); }} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 ${isInternalNote ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'text-gray-500 hover:bg-white/5'}`}><Lock className="w-3 h-3" /> Internal Note</button>
                   
+                  {/* ✨ AI Copilot Suggest Button */}
+                  {!isInternalNote && (
+                    <button
+                      type="button"
+                      onClick={handleAiSuggest}
+                      disabled={isGeneratingAiSuggest}
+                      title="AI drafts a recommended reply based on conversation history"
+                      className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 border border-indigo-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {isGeneratingAiSuggest ? (
+                        <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 text-indigo-400" />
+                      )}
+                      <span>{isGeneratingAiSuggest ? 'Drafting...' : 'AI Suggest'}</span>
+                    </button>
+                  )}
+
                   {/* Quick Replies / Macros */}
                   {!isInternalNote && (
                     <div className="relative">
@@ -303,7 +387,14 @@ export default function ChatArea({
                   <Paperclip className="w-5 h-5" />
                 </button>
 
-                <input type="text" placeholder={isInternalNote ? "Type a private note..." : "Type your reply to the customer..."} value={replyContent} onChange={(e) => setReplyContent(e.target.value)} className={`flex-1 border rounded-xl px-5 py-4 text-[15px] focus:outline-none focus:ring-1 focus:border-transparent transition-all placeholder:text-gray-500 ${isInternalNote ? 'bg-amber-900/20 border-amber-500/30 focus:ring-amber-500 text-amber-100 placeholder:text-amber-700/50' : 'bg-[#050b1b] border-white/10 focus:ring-[#c82d75] text-white'}`} />
+                <input 
+                  type="text" 
+                  placeholder={isInternalNote ? "Type a private note... (Ctrl+Enter to post, Alt+N to toggle)" : "Type your reply... (Ctrl+Enter to send, Alt+N for note)"} 
+                  value={replyContent} 
+                  onChange={(e) => setReplyContent(e.target.value)} 
+                  onKeyDown={handleKeyDown as any}
+                  className={`flex-1 border rounded-xl px-5 py-4 text-[15px] focus:outline-none focus:ring-1 focus:border-transparent transition-all placeholder:text-gray-500 ${isInternalNote ? 'bg-amber-900/20 border-amber-500/30 focus:ring-amber-500 text-amber-100 placeholder:text-amber-700/50' : 'bg-[#050b1b] border-white/10 focus:ring-[#c82d75] text-white'}`} 
+                />
                 <button type="submit" disabled={loading || (!replyContent.trim() && !selectedFile)} className={`px-6 rounded-xl flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-lg ${isInternalNote ? 'bg-amber-500 hover:bg-amber-600 text-amber-950' : 'bg-[#c82d75] hover:bg-[#a62460] text-white'}`}><Send className="w-5 h-5" /></button>
               </div>
             </form>

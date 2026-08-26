@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserButton } from '@clerk/nextjs';
-import { Phone, Mail, MessageSquare, CheckCircle2, Bot, Moon, Volume2, VolumeX, Bell } from 'lucide-react';
+import { Phone, Mail, MessageSquare, CheckCircle2, Bot, Moon, Volume2, VolumeX, Bell, Search, X } from 'lucide-react';
 import { Ticket } from '@/types/dashboard';
 import { isSoundMuted, setSoundMuted, playNotificationPing } from '@/lib/sound';
 
@@ -15,6 +15,7 @@ type FilterType = 'ALL' | 'WHATSAPP' | 'IN_APP' | 'EMAIL';
 
 export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, businessStatus }: TicketQueueProps) {
   const [filter, setFilter] = useState<FilterType>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
   const [muted, setMuted] = useState(false);
   const [hasNotificationPermission, setHasNotificationPermission] = useState(true);
 
@@ -41,7 +42,20 @@ export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, b
     }
   };
 
-  const filteredTickets = tickets.filter(t => filter === 'ALL' || t.sourceChannel === filter);
+  const queryClean = searchQuery.toLowerCase().trim();
+  const filteredTickets = tickets.filter(t => {
+    const matchesChannel = filter === 'ALL' || t.sourceChannel === filter;
+    if (!matchesChannel) return false;
+    if (!queryClean) return true;
+
+    return (
+      (t.title && t.title.toLowerCase().includes(queryClean)) ||
+      (t.customerEmail && t.customerEmail.toLowerCase().includes(queryClean)) ||
+      (t.customerPhone && t.customerPhone.toLowerCase().includes(queryClean)) ||
+      (t.lastMessage && t.lastMessage.toLowerCase().includes(queryClean)) ||
+      (t.$id && t.$id.toLowerCase().includes(queryClean))
+    );
+  });
 
   return (
     <div className="w-full md:w-[360px] lg:w-[420px] h-full flex flex-col bg-[#050b1b] border-r border-white/10 z-10">
@@ -101,6 +115,28 @@ export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, b
         </div>
       )}
 
+      {/* Search Input Bar */}
+      <div className="px-4 pt-3 pb-1 bg-[#050b1b] shrink-0">
+        <div className="relative flex items-center">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search tickets, email, topic..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-[#0d152b] border border-white/10 rounded-xl pl-9 pr-8 py-2 text-[13px] text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#c82d75] transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 text-gray-400 hover:text-white p-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Channel Tabs */}
       <div className="px-4 py-3 border-b border-white/5 shrink-0 bg-[#050b1b]">
         <div className="flex bg-[#0d152b] rounded-lg p-1 gap-1">
@@ -111,10 +147,10 @@ export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, b
               className={`flex-1 py-1.5 text-[10px] font-bold tracking-wider rounded-md transition-all ${
                 filter === tab 
                   ? 'bg-[#c82d75] text-white shadow-md' 
-                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              {tab.replace('_', ' ')}
+              {tab}
             </button>
           ))}
         </div>

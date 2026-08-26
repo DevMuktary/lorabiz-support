@@ -45,6 +45,12 @@ export default function SupportWidget() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   
+  const [csatRating, setCsatRating] = useState<number>(0);
+  const [csatFeedback, setCsatFeedback] = useState<string>('');
+  const [csatSubmitted, setCsatSubmitted] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -380,6 +386,63 @@ export default function SupportWidget() {
     }
   };
 
+  const handleCopyText = (id: string, text: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedMessageId(id);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    }
+  };
+
+  const handleExportTranscript = () => {
+    const header = `=== LORABIZ SUPPORT CHAT TRANSCRIPT ===\nDate: ${new Date().toLocaleString()}\n=======================================\n\n`;
+    const body = messages.map(m => {
+      const sender = m.senderType === 'CUSTOMER' ? 'You' : m.senderType === 'AGENT' ? 'Support Agent' : m.senderType === 'ASSISTANT' ? 'Lora AI' : 'System';
+      return `[${sender}]: ${m.content || '[Attachment]'}`;
+    }).join('\n\n');
+
+    const blob = new Blob([header + body], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lorabiz-chat-transcript.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    if (activeTicketId) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      
+      fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'TYPING_STATUS', ticketId: activeTicketId, isTyping: true })
+      }).catch(() => {});
+
+      typingTimeoutRef.current = setTimeout(() => {
+        fetch('/api/support/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'TYPING_STATUS', ticketId: activeTicketId, isTyping: false })
+        }).catch(() => {});
+      }, 1500);
+    }
+  };
+
+  const handleSubmitRating = async (ratingVal: number) => {
+    setCsatRating(ratingVal);
+    if (!activeTicketId) return;
+    try {
+      await fetch('/api/support/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'SUBMIT_RATING', ticketId: activeTicketId, rating: ratingVal, feedback: csatFeedback })
+      });
+      setCsatSubmitted(true);
+    } catch (e) {}
+  };
+
   const closedTickets = historyTickets.filter(t => t.status === 'CLOSED').slice(0, 3);
   const isViewingClosedTicket = historyTickets.find(t => t.$id === activeTicketId)?.status === 'CLOSED';
 
@@ -599,8 +662,8 @@ export default function SupportWidget() {
                             }
 
                             return (
-                              <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-xs ${isUser ? 'bg-[#8B2D75] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
+                              <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} group/bubble relative`}>
+                                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-xs relative group ${isUser ? 'bg-[#8B2D75] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
                                   
                                   {/* 🚀 ATTACHMENT RENDERER WITH PDF FALLBACK 🚀 */}
                                   {msg.attachmentUrl && (
@@ -627,6 +690,18 @@ export default function SupportWidget() {
                                   )}
 
                                   {msg.content && <span>{msg.content}</span>}
+
+                                  {/* 1-Click Copy on message */}
+                                  {msg.content && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyText(msg.$id, msg.content)}
+                                      title="Copy message"
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity absolute -bottom-2.5 right-2 bg-white border border-gray-200 text-gray-500 hover:text-gray-900 rounded-md p-1 shadow-sm text-[10px]"
+                                    >
+                                      {copiedMessageId === msg.$id ? '✓' : '📋'}
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -644,8 +719,58 @@ export default function SupportWidget() {
                    )}
 
                    {isViewingClosedTicket ? (
-                     <div className="p-4 text-center bg-gray-100 border-t border-gray-200 shrink-0 pb-safe">
-                       <span className="text-[14px] text-gray-500 font-medium">This conversation is closed.</span>
+                     <div className="p-5 bg-white border-t border-gray-200 shrink-0 pb-safe space-y-3">
+                       <div className="text-center">
+                         <h4 className="text-[14px] font-bold text-gray-900">How was your support experience?</h4>
+                         <p className="text-[12px] text-gray-500 mt-0.5">Your rating helps us improve.</p>
+                       </div>
+
+                       {!csatSubmitted ? (
+                         <div className="flex flex-col items-center gap-3">
+                           <div className="flex gap-2">
+                             {[1, 2, 3, 4, 5].map((star) => (
+                               <button
+                                 key={star}
+                                 type="button"
+                                 onClick={() => handleSubmitRating(star)}
+                                 className={`text-2xl p-1 transition-transform hover:scale-125 ${csatRating >= star ? 'text-amber-400' : 'text-gray-300 hover:text-amber-300'}`}
+                               >
+                                 ★
+                               </button>
+                             ))}
+                           </div>
+                           <div className="flex w-full gap-2">
+                             <input
+                               type="text"
+                               placeholder="Add a quick comment (optional)..."
+                               value={csatFeedback}
+                               onChange={(e) => setCsatFeedback(e.target.value)}
+                               className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-[#8B2D75]"
+                             />
+                             {csatRating > 0 && (
+                               <button
+                                 onClick={() => handleSubmitRating(csatRating)}
+                                 className="px-3 py-2 bg-[#8B2D75] text-white text-xs font-bold rounded-lg hover:bg-[#772364]"
+                               >
+                                 Submit
+                               </button>
+                             )}
+                           </div>
+                         </div>
+                       ) : (
+                         <div className="text-center py-2 text-emerald-600 font-bold text-xs flex items-center justify-center gap-1.5 bg-emerald-50 rounded-lg p-2">
+                           <span>✓ Thank you for your feedback!</span>
+                         </div>
+                       )}
+
+                       <div className="pt-2 border-t border-gray-100 flex justify-between items-center text-[12px]">
+                         <button onClick={handleExportTranscript} className="text-[#8B2D75] hover:underline font-medium">
+                           📄 Download Transcript
+                         </button>
+                         <button onClick={() => setView('HUB')} className="text-gray-500 hover:text-gray-900 font-medium">
+                           Return to Hub →
+                         </button>
+                       </div>
                      </div>
                    ) : (
                      <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 pb-safe z-10">
@@ -665,7 +790,7 @@ export default function SupportWidget() {
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                           </button>
                           
-                          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onFocus={scrollToBottom} placeholder="Message..." className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-2 focus:ring-[#8B2D75] focus:border-[#8B2D75] min-w-0 outline-none" />
+                          <input type="text" value={inputText} onChange={handleInputChange} onFocus={scrollToBottom} placeholder="Message..." className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-2 focus:ring-[#8B2D75] focus:border-[#8B2D75] min-w-0 outline-none" />
                           
                           <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#8B2D75] hover:bg-[#772364] text-white rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0 shadow-sm">
                             {isUploading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
