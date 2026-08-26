@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { storage } from '@/lib/appwrite-client';
 import { ID } from 'appwrite';
+import { playCustomerPing } from '@/lib/sound';
 
 const BUCKET_ID = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID || 'attachments';
 
@@ -68,6 +69,14 @@ export default function SupportWidget() {
   // Track messages in a ref for accurate unread counting
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      document.title = 'LoraBiz Support';
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
 
   useEffect(() => {
     const handleParentMessage = (event: MessageEvent) => {
@@ -151,15 +160,20 @@ export default function SupportWidget() {
           const newMsgs = data.messages.filter((m: any) => !prevIds.has(m.$id));
           const newReplies = newMsgs.filter((m: any) => m.senderType !== 'CUSTOMER');
           
-          // 🚀 Smart Unread Counter Logic 🚀
+          // 🚀 Smart Unread Counter & Customer Chime 🚀
           if (!isOpenRef.current && data.messages.length > 0) {
               if (messagesRef.current.length === 0) {
                   const incoming = data.messages.filter((m: any) => m.senderType !== 'CUSTOMER');
                   if (incoming.length > 0) {
                       setUnreadCount(incoming.length);
+                      playCustomerPing();
                   }
               } else if (newReplies.length > 0) {
                   setUnreadCount(count => count + newReplies.length);
+                  playCustomerPing();
+                  if (typeof document !== 'undefined' && document.hidden) {
+                    document.title = '💬 (1) Support reply - LoraBiz';
+                  }
               }
           }
 
@@ -319,7 +333,6 @@ export default function SupportWidget() {
     if (selectedFile) {
       setIsUploading(true);
       try {
-        // 🚀 THE FIX: Removed Role.team('agents') so it successfully uploads using default permissions!
         const upload = await storage.createFile(BUCKET_ID, ID.unique(), selectedFile);
         uploadedFileUrl = storage.getFileView(BUCKET_ID, upload.$id);
       } catch (err) {
@@ -351,10 +364,22 @@ export default function SupportWidget() {
       {/* 🚀 IMAGE LIGHTBOX MODAL 🚀 */}
       {lightboxImage && (
         <div className="fixed inset-0 z-[100000] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in pointer-events-auto" onClick={() => setLightboxImage(null)}>
-          <button className="absolute top-6 right-6 text-white/50 hover:text-white bg-white/10 p-2 rounded-full transition-colors">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-          <img src={lightboxImage} alt="Enlarged Attachment" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+          <div className="absolute top-6 right-6 flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+            <a 
+              href={lightboxImage} 
+              target="_blank" 
+              rel="noreferrer" 
+              download="lorabiz-attachment" 
+              className="text-white/80 hover:text-white bg-white/10 hover:bg-white/20 px-3.5 py-2 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Download
+            </a>
+            <button onClick={() => setLightboxImage(null)} className="text-white/80 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          <img src={lightboxImage} alt="Enlarged Attachment" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
 
@@ -375,7 +400,7 @@ export default function SupportWidget() {
                       if (dialog.type === 'confirm' && dialog.onConfirm) { dialog.onConfirm(); } 
                       else { setDialog(null); }
                     }}
-                    className="px-5 py-2.5 text-[13px] font-bold text-white bg-[#000000] hover:bg-gray-800 rounded-xl transition-transform active:scale-95"
+                    className="px-5 py-2.5 text-[13px] font-bold text-white bg-[#8B2D75] hover:bg-[#772364] rounded-xl transition-transform active:scale-95 shadow-sm"
                   >
                     {dialog.type === 'confirm' ? 'Yes, End Chat' : 'Okay'}
                   </button>
@@ -384,22 +409,22 @@ export default function SupportWidget() {
             </div>
           )}
 
-          <div className="bg-[#000000] px-5 py-4 flex justify-between items-center text-white shrink-0 z-10">
+          <div className="bg-gradient-to-r from-[#8B2D75] via-[#7D2569] to-[#691C56] px-5 py-4 flex justify-between items-center text-white shrink-0 z-10 shadow-sm">
             <div className="flex items-center space-x-3">
               {(view === 'CHAT' || view === 'ONBOARDING') && (
-                <button onClick={() => { setView('HUB'); setActiveTicketId(null); }} className="hover:bg-white/10 p-1 rounded-md transition-colors">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                <button onClick={() => { setView('HUB'); setActiveTicketId(null); }} className="hover:bg-white/15 p-1.5 rounded-lg transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
                 </button>
               )}
-              <div className={`w-2.5 h-2.5 rounded-full bg-[#8B2D75] ${!isViewingClosedTicket && !isInitializing ? 'animate-pulse' : ''}`}></div>
+              <div className={`w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white/50 ${!isViewingClosedTicket && !isInitializing ? 'animate-pulse' : ''}`}></div>
               <h3 className="font-bold text-[16px] tracking-wide text-white">LoraBiz Support</h3>
             </div>
             
             <div className="flex items-center space-x-2">
               {view === 'CHAT' && !isViewingClosedTicket && !isChatLoading && (
-                <button onClick={handleEndChat} className="text-[12px] font-bold bg-[#333333] hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm">End Chat</button>
+                <button onClick={handleEndChat} className="text-[12px] font-bold bg-white/20 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-md transition-colors shadow-sm">End Chat</button>
               )}
-              <button onClick={() => toggleWidget(false)} className="text-gray-300 hover:text-white p-1 ml-1">
+              <button onClick={() => toggleWidget(false)} className="text-white/80 hover:text-white p-1 ml-1 hover:bg-white/10 rounded-lg transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -424,19 +449,19 @@ export default function SupportWidget() {
                       <img src="/support.png" alt="Agent" className="w-full h-full object-contain" />
                     </div>
                     <div>
-                      <h2 className="text-[18px] font-extrabold text-black tracking-tight">Hi {userDetails.name ? userDetails.name.split(' ')[0] : 'there'}!</h2>
+                      <h2 className="text-[18px] font-extrabold text-gray-900 tracking-tight">Hi {userDetails.name ? userDetails.name.split(' ')[0] : 'there'}!</h2>
                       <p className="text-[14px] text-gray-600 leading-snug">I'm Lora. How can we help you today?</p>
                     </div>
                   </div>
 
                   <div className="space-y-3">
                     {openTicket ? (
-                      <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-green-600 hover:bg-green-700 text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
+                      <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-emerald-600 hover:bg-emerald-700 text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
                         <span className="font-bold text-[16px]">Resume Active Chat</span>
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                       </button>
                     ) : (
-                      <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-[#8B2D75] hover:bg-[#722360] text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
+                      <button onClick={() => handleStartChat()} className="w-full flex items-center justify-between bg-[#8B2D75] hover:bg-[#772364] text-white p-4 rounded-xl shadow-md transition-transform active:scale-95">
                         <span className="font-bold text-[16px]">Start a new conversation</span>
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                       </button>
@@ -518,7 +543,7 @@ export default function SupportWidget() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Briefly describe your issue</label>
                       <textarea rows={2} value={userDetails.description} onChange={(e) => setUserDetails({...userDetails, description: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 text-[16px] focus:ring-2 focus:ring-[#8B2D75] outline-none resize-none" placeholder="How can we help?"></textarea>
                     </div>
-                    <button type="submit" className="w-full bg-[#000000] text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 transition-colors mt-2">Start Chat</button>
+                    <button type="submit" className="w-full bg-[#8B2D75] hover:bg-[#772364] text-white font-bold py-3.5 rounded-xl shadow-md transition-transform active:scale-95 mt-2">Start Chat</button>
                   </form>
                 </div>
               )}
@@ -549,7 +574,7 @@ export default function SupportWidget() {
 
                           return (
                             <div key={msg.$id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed shadow-sm ${isUser ? 'bg-[#000000] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
+                              <div className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed shadow-sm ${isUser ? 'bg-[#8B2D75] text-white rounded-br-sm' : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'}`}>
                                 
                                 {/* 🚀 ATTACHMENT RENDERER WITH PDF FALLBACK 🚀 */}
                                 {msg.attachmentUrl && (
@@ -613,10 +638,10 @@ export default function SupportWidget() {
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                           </button>
                           
-                          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onFocus={scrollToBottom} placeholder="Message..." className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-[#000000] focus:border-[#000000] min-w-0" />
+                          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onFocus={scrollToBottom} placeholder="Message..." className="flex-1 bg-gray-50 border border-gray-300 text-gray-900 text-[16px] rounded-xl p-3.5 focus:ring-2 focus:ring-[#8B2D75] focus:border-[#8B2D75] min-w-0 outline-none" />
                           
-                          <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#000000] text-[#8B2D75] rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0">
-                            {isUploading ? <div className="w-6 h-6 border-2 border-[#8B2D75] border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                          <button type="submit" disabled={(!inputText.trim() && !selectedFile) || isTyping || isUploading} className="p-3.5 bg-[#8B2D75] hover:bg-[#772364] text-white rounded-xl disabled:opacity-50 transition-transform active:scale-95 shrink-0 shadow-sm">
+                            {isUploading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
                           </button>
                        </form>
                      </div>

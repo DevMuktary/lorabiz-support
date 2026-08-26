@@ -1,7 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Ticket, Message } from '@/types/dashboard';
 import TicketContext from './TicketContext';
-import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X } from 'lucide-react';
+import { ChevronLeft, Send, Lock, Info, ArrowDown, User, XCircle, RefreshCw, Paperclip, X, Zap } from 'lucide-react';
+
+const CANNED_RESPONSES = [
+  { label: 'Greeting', text: 'Hello! Thank you for reaching out to LoraBiz Support. How can I assist you today?' },
+  { label: 'Please Hold', text: 'I am looking into this for you right now. Please give me just a moment.' },
+  { label: 'Email Sent', text: 'We have sent full details directly to your registered email address. Please check your inbox.' },
+  { label: 'Working Hours', text: 'Our live support team is active Monday to Friday, 9:00 AM – 5:00 PM.' },
+  { label: 'Resolved', text: 'Thank you for contacting LoraBiz Support! Please let us know if you need any further assistance.' },
+];
 
 interface ChatAreaProps {
   ticket: Ticket;
@@ -23,6 +31,7 @@ export default function ChatArea({
   const [replyContent, setReplyContent] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [showMobileContext, setShowMobileContext] = useState(false); 
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [dialog, setDialog] = useState<{ isOpen: boolean, title: string, message: string, action: () => void } | null>(null);
 
@@ -236,9 +245,42 @@ export default function ChatArea({
               
               {/* Note Toggle & Selected File Preview */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setIsInternalNote(false)} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors ${!isInternalNote ? 'bg-white/10 text-white' : 'text-gray-500 hover:bg-white/5'}`}>Reply Customer</button>
-                  <button type="button" onClick={() => setIsInternalNote(true)} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 ${isInternalNote ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'text-gray-500 hover:bg-white/5'}`}><Lock className="w-3 h-3" /> Internal Note</button>
+                <div className="flex items-center gap-2 relative">
+                  <button type="button" onClick={() => { setIsInternalNote(false); setShowQuickReplies(false); }} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors ${!isInternalNote ? 'bg-white/10 text-white' : 'text-gray-500 hover:bg-white/5'}`}>Reply Customer</button>
+                  <button type="button" onClick={() => { setIsInternalNote(true); setShowQuickReplies(false); }} className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 ${isInternalNote ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'text-gray-500 hover:bg-white/5'}`}><Lock className="w-3 h-3" /> Internal Note</button>
+                  
+                  {/* Quick Replies / Macros */}
+                  {!isInternalNote && (
+                    <div className="relative">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowQuickReplies(!showQuickReplies)} 
+                        className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${showQuickReplies ? 'bg-[#c82d75] text-white' : 'bg-white/5 text-[#c82d75] hover:bg-[#c82d75]/10 border border-[#c82d75]/20'}`}
+                      >
+                        <Zap className="w-3 h-3" /> Quick Replies
+                      </button>
+
+                      {showQuickReplies && (
+                        <div className="absolute bottom-full left-0 mb-2 w-80 bg-[#0d152b] border border-white/10 rounded-xl shadow-2xl p-2 z-30 space-y-1 animate-in fade-in zoom-in-95">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-2 py-1">Saved Responses</div>
+                          {CANNED_RESPONSES.map((item) => (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => {
+                                setReplyContent(item.text);
+                                setShowQuickReplies(false);
+                              }}
+                              className="w-full text-left p-2 rounded-lg hover:bg-white/10 transition-colors flex flex-col gap-0.5 group"
+                            >
+                              <span className="text-[12px] font-bold text-white group-hover:text-[#c82d75] transition-colors">{item.label}</span>
+                              <span className="text-[11px] text-gray-400 truncate">{item.text}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {selectedFile && (

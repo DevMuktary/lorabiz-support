@@ -38,14 +38,14 @@
 
     let widgetUrl = `${SUPPORT_URL}/widget`;
 
-    if (authData && authData.userId) {
-      const params = new URLSearchParams({
-        userId: authData.userId,
-        name: authData.name || '',
-        email: authData.email || ''
-      });
-      widgetUrl += `?${params.toString()}`;
+    const params = new URLSearchParams();
+    if (authData && authData.userId) params.set('userId', authData.userId);
+    if (authData && authData.name) params.set('name', authData.name);
+    if (authData && authData.email) params.set('email', authData.email);
+    if (typeof window !== 'undefined' && window.location.href) {
+      params.set('pageUrl', window.location.href);
     }
+    widgetUrl += `?${params.toString()}`;
 
     let existingIframe = document.getElementById('lorabiz-support-iframe');
     if (existingIframe) {
@@ -119,6 +119,7 @@
       // Disable iframe pointer events during drag to prevent trapping mousemove
       iframe.style.setProperty('pointer-events', 'none', 'important');
       dragHandle.style.setProperty('cursor', 'grabbing', 'important');
+      container.style.setProperty('transition', 'none', 'important');
 
       try {
         dragHandle.setPointerCapture(e.pointerId);
@@ -170,6 +171,14 @@
         iframe.style.setProperty('pointer-events', 'auto', 'important');
 
         if (isDragging) {
+          // Smooth edge snap-to-dock (snap smoothly to nearest horizontal edge)
+          const midX = (window.innerWidth - CLOSED_SIZE) / 2;
+          let snapRight = currentPos.right < midX ? 16 : (window.innerWidth - CLOSED_SIZE - 16);
+          snapRight = Math.max(8, Math.min(snapRight, window.innerWidth - CLOSED_SIZE - 8));
+
+          currentPos.right = snapRight;
+          container.style.setProperty('transition', 'right 0.3s cubic-bezier(0.4, 0, 0.2, 1), bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 'important');
+          container.style.setProperty('right', snapRight + 'px', 'important');
           savePosition(currentPos);
         } else {
           // Normal click -> Open widget

@@ -9,6 +9,7 @@ import { checkBusinessHours } from '@/lib/business-hours';
 
 import TicketQueue from '@/components/dashboard/TicketQueue';
 import ChatArea from '@/components/dashboard/ChatArea'; 
+import { playNotificationPing } from '@/lib/sound';
 
 export default function DashboardPage() {
   const { user } = useUser();
@@ -65,9 +66,38 @@ export default function DashboardPage() {
     }
   };
 
+  // Background Tab Title & Desktop Notification Alert
+  useEffect(() => {
+    const handleFocus = () => {
+      document.title = 'LoraBiz Support - Admin Hub';
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
+  const triggerIncomingAlert = (senderName: string, content: string) => {
+    playNotificationPing();
+
+    // 1. Desktop Browser Push Notification
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(`💬 New message from ${senderName || 'Customer'}`, {
+          body: content ? (content.length > 60 ? content.slice(0, 60) + '...' : content) : 'Sent an attachment',
+          icon: '/support.png'
+        });
+      } catch (e) {}
+    }
+
+    // 2. Tab Title Alert if tab is hidden
+    if (typeof document !== 'undefined' && document.hidden) {
+      document.title = `🔴 (1) New message - LoraBiz Support`;
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     let unsubscribeTickets = () => {};
+    let unsubscribeGlobalMessages = () => {};
 
     const initSecureSession = async () => {
       try { await account.get(); } 
@@ -82,13 +112,28 @@ export default function DashboardPage() {
       fetchTickets();
       unsubscribeTickets = client.subscribe(`databases.${dbId}.collections.${ticketsCol}.documents`, (response: any) => {
         fetchTickets(); 
+        if (response.events.includes('databases.*.collections.*.documents.*.create')) {
+          triggerIncomingAlert('New Ticket', response.payload.title || 'New customer support ticket');
+        }
         if (response.payload.$id === activeTicketIdRef.current) setIsCustomerTyping(response.payload.customerTyping || false);
+      });
+
+      // Global sound & desktop notification whenever any customer sends a message
+      unsubscribeGlobalMessages = client.subscribe(`databases.${dbId}.collections.${messagesCol}.documents`, (response: any) => {
+        if (response.events.includes('databases.*.collections.*.documents.*.create')) {
+          if (response.payload.senderType === 'CUSTOMER') {
+            triggerIncomingAlert(response.payload.senderName, response.payload.content);
+          }
+        }
       });
     };
 
     initSecureSession();
-    return () => unsubscribeTickets();
-  }, [user, dbId, ticketsCol]);
+    return () => {
+      unsubscribeTickets();
+      unsubscribeGlobalMessages();
+    };
+  }, [user, dbId, ticketsCol, messagesCol]);
 
   const activeTicketId = selectedTicket?.$id;
   useEffect(() => {

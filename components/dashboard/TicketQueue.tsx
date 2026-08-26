@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserButton } from '@clerk/nextjs';
-import { Phone, Mail, MessageSquare, CheckCircle2, Bot, Moon } from 'lucide-react';
+import { Phone, Mail, MessageSquare, CheckCircle2, Bot, Moon, Volume2, VolumeX, Bell } from 'lucide-react';
 import { Ticket } from '@/types/dashboard';
+import { isSoundMuted, setSoundMuted, playNotificationPing } from '@/lib/sound';
 
 interface TicketQueueProps {
   tickets: Ticket[];
@@ -14,6 +15,31 @@ type FilterType = 'ALL' | 'WHATSAPP' | 'IN_APP' | 'EMAIL';
 
 export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, businessStatus }: TicketQueueProps) {
   const [filter, setFilter] = useState<FilterType>('ALL');
+  const [muted, setMuted] = useState(false);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState(true);
+
+  useEffect(() => {
+    setMuted(isSoundMuted());
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setHasNotificationPermission(Notification.permission === 'granted');
+    }
+  }, []);
+
+  const handleToggleMute = () => {
+    const nextMuted = !muted;
+    setMuted(nextMuted);
+    setSoundMuted(nextMuted);
+    if (!nextMuted) {
+      playNotificationPing();
+    }
+  };
+
+  const handleRequestNotifications = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setHasNotificationPermission(permission === 'granted');
+    }
+  };
 
   const filteredTickets = tickets.filter(t => filter === 'ALL' || t.sourceChannel === filter);
 
@@ -28,8 +54,35 @@ export default function TicketQueue({ tickets, selectedTicket, onSelectTicket, b
           </div>
           <h1 className="font-extrabold text-lg text-white tracking-tight">Agent Hub</h1>
         </div>
-        <div className="ring-2 ring-white/10 rounded-full">
-          <UserButton appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
+
+        <div className="flex items-center gap-2">
+          {/* Sound Toggle Button */}
+          <button
+            onClick={handleToggleMute}
+            title={muted ? "Sound muted (click to unmute)" : "Sound on (click to mute)"}
+            className={`p-2 rounded-lg border transition-all ${
+              muted 
+                ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' 
+                : 'bg-white/5 border-white/10 text-emerald-400 hover:bg-white/10'
+            }`}
+          >
+            {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
+          {/* Desktop Push Notification Request (if not yet granted) */}
+          {!hasNotificationPermission && (
+            <button
+              onClick={handleRequestNotifications}
+              title="Enable desktop notifications"
+              className="p-2 rounded-lg bg-[#c82d75]/10 border border-[#c82d75]/20 text-[#c82d75] hover:bg-[#c82d75]/20 transition-colors"
+            >
+              <Bell className="w-4 h-4 animate-pulse" />
+            </button>
+          )}
+
+          <div className="ring-2 ring-white/10 rounded-full">
+            <UserButton appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
+          </div>
         </div>
       </header>
 
