@@ -4,17 +4,19 @@ import SupportWidget from '@/components/SupportWidget';
 export default function WidgetPage() {
   return (
     <>
-      {/* 
-        CRITICAL: This block completely overrides the Next.js globals.css 
-        on the server side, preventing the white flash entirely.
-      */}
       <style dangerouslySetInnerHTML={{ __html: `
         html, body { 
           background-color: transparent !important; 
           background: transparent !important; 
+          overflow: hidden !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+          color-scheme: inherit !important;
         }
       `}} />
-      <main className="w-full h-full bg-transparent overflow-visible">
+      <main className="w-full h-full bg-transparent overflow-hidden">
         <SupportWidget />
       </main>
     </>
