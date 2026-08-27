@@ -90,6 +90,7 @@
     container.style.setProperty('z-index', '2147483647', 'important'); 
     container.style.setProperty('border', 'none', 'important');
     container.style.setProperty('outline', 'none', 'important');
+    container.style.setProperty('border-radius', '50%', 'important');
     container.style.setProperty('background', 'transparent', 'important');
     container.style.setProperty('background-color', 'transparent', 'important');
     container.style.setProperty('box-shadow', 'none', 'important');
@@ -104,6 +105,7 @@
     iframe.src = widgetUrl; 
     iframe.id = 'lorabiz-support-iframe';
     iframe.setAttribute('allowtransparency', 'true');
+    iframe.setAttribute('frameBorder', '0');
     iframe.setAttribute('title', 'LoraBiz Support');
     
     iframe.style.setProperty('width', '100%', 'important');
@@ -112,6 +114,8 @@
     iframe.style.setProperty('padding', '0', 'important');
     iframe.style.setProperty('box-sizing', 'border-box', 'important');
     iframe.style.setProperty('border', 'none', 'important');
+    iframe.style.setProperty('outline', 'none', 'important');
+    iframe.style.setProperty('border-radius', '50%', 'important');
     iframe.style.setProperty('background', 'transparent', 'important');
     iframe.style.setProperty('background-color', 'transparent', 'important');
     iframe.style.setProperty('pointer-events', 'auto', 'important'); 
@@ -294,11 +298,18 @@
       container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('bottom', currentPos.bottom + 'px', 'important');
       container.style.setProperty('right', currentPos.right + 'px', 'important');
+      container.style.setProperty('border-radius', '50%', 'important');
       container.style.setProperty('pointer-events', 'none', 'important');
       container.style.setProperty('background', 'transparent', 'important');
       container.style.setProperty('background-color', 'transparent', 'important');
       container.style.setProperty('box-shadow', 'none', 'important');
-      if (iframe) iframe.style.setProperty('pointer-events', 'auto', 'important');
+      container.style.setProperty('overflow', 'visible', 'important');
+
+      if (iframe) {
+        iframe.style.setProperty('border-radius', '50%', 'important');
+        iframe.style.setProperty('pointer-events', 'auto', 'important');
+        iframe.style.setProperty('box-shadow', 'none', 'important');
+      }
     }
     
     if (event.data === 'LORA_WIDGET_OPENED') {
@@ -310,7 +321,7 @@
       container.style.setProperty('pointer-events', 'auto', 'important');
 
       if (window.innerWidth <= 640) {
-        // Fullscreen on mobile as requested
+        // Fullscreen on mobile devices
         container.style.removeProperty('bottom');
         container.style.removeProperty('right');
         container.style.setProperty('top', '0', 'important');
@@ -320,10 +331,16 @@
         container.style.setProperty('max-width', '100%', 'important');
         container.style.setProperty('max-height', '100%', 'important');
         container.style.setProperty('border-radius', '0', 'important');
+        container.style.setProperty('box-shadow', 'none', 'important');
+        container.style.setProperty('overflow', 'hidden', 'important');
+        if (iframe) {
+          iframe.style.setProperty('border-radius', '0', 'important');
+          iframe.style.setProperty('overflow', 'hidden', 'important');
+        }
       } else {
-        // Floating popup card on desktop
-        const OPEN_WIDTH = 400;
-        const OPEN_HEIGHT = 650;
+        // Floating popup card on desktop with modern 20px radius and shadow
+        const OPEN_WIDTH = 385;
+        const OPEN_HEIGHT = 630;
 
         let openRight = currentPos.right;
         let openBottom = currentPos.bottom;
@@ -340,10 +357,18 @@
         container.style.removeProperty('inset');
         container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
         container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
-        container.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
-        container.style.setProperty('max-height', 'calc(100vh - 40px)', 'important');
+        container.style.setProperty('max-width', 'calc(100vw - 20px)', 'important');
+        container.style.setProperty('max-height', 'calc(100vh - 30px)', 'important');
         container.style.setProperty('bottom', openBottom + 'px', 'important');
         container.style.setProperty('right', openRight + 'px', 'important');
+        container.style.setProperty('border-radius', '20px', 'important');
+        container.style.setProperty('box-shadow', '0 20px 45px -10px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.06), 0 8px 16px -4px rgba(0,0,0,0.04)', 'important');
+        container.style.setProperty('overflow', 'hidden', 'important');
+
+        if (iframe) {
+          iframe.style.setProperty('border-radius', '20px', 'important');
+          iframe.style.setProperty('overflow', 'hidden', 'important');
+        }
       }
     }
   });
