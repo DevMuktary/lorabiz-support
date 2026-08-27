@@ -2,7 +2,7 @@
   if (window.LORA_INIT_WIDGET) return;
 
   const STORAGE_POS_KEY = 'lorabiz_support_widget_pos';
-  const CLOSED_SIZE = 72; // Sized with breathing space so unread badges on the launcher button shoulder are never clipped
+  const CLOSED_SIZE = 60; // 60px circular launcher button
 
   function getSavedPosition() {
     try {
@@ -40,7 +40,7 @@
         return 'dark';
       }
     } catch (e) {}
-    return 'light';
+    return 'dark';
   }
 
   let currentPos = getSavedPosition();
@@ -73,7 +73,7 @@
 
     currentPos = getSavedPosition();
 
-    // Floating Container - Pure transparent, isolated from host page styles
+    // Floating Container - Pure circular floating element
     const container = document.createElement('div');
     container.id = 'lorabiz-support-widget-container';
     
@@ -90,10 +90,11 @@
     container.style.setProperty('z-index', '2147483647', 'important'); 
     container.style.setProperty('border', 'none', 'important');
     container.style.setProperty('outline', 'none', 'important');
+    container.style.setProperty('border-radius', '50%', 'important');
     container.style.setProperty('background', 'transparent', 'important');
     container.style.setProperty('background-color', 'transparent', 'important');
     container.style.setProperty('box-shadow', 'none', 'important');
-    container.style.setProperty('overflow', 'visible', 'important');
+    container.style.setProperty('overflow', 'hidden', 'important');
     container.style.setProperty('pointer-events', 'none', 'important');
     container.style.setProperty('user-select', 'none', 'important');
     container.style.setProperty('-webkit-user-select', 'none', 'important');
@@ -114,17 +115,19 @@
     iframe.style.setProperty('box-sizing', 'border-box', 'important');
     iframe.style.setProperty('border', 'none', 'important');
     iframe.style.setProperty('outline', 'none', 'important');
+    iframe.style.setProperty('border-radius', '50%', 'important');
     iframe.style.setProperty('background', 'transparent', 'important');
     iframe.style.setProperty('background-color', 'transparent', 'important');
     iframe.style.setProperty('pointer-events', 'auto', 'important'); 
     iframe.style.setProperty('color-scheme', 'inherit', 'important');
     iframe.style.setProperty('display', 'block', 'important');
+    iframe.style.setProperty('overflow', 'hidden', 'important');
 
-    // Drag Handle Overlay matching the 60px centered circular launcher
+    // Drag Handle Overlay
     const dragHandle = document.createElement('div');
     dragHandle.id = 'lorabiz-drag-overlay';
     dragHandle.style.setProperty('position', 'absolute', 'important');
-    dragHandle.style.setProperty('inset', '6px', 'important');
+    dragHandle.style.setProperty('inset', '0', 'important');
     dragHandle.style.setProperty('border-radius', '50%', 'important');
     dragHandle.style.setProperty('cursor', 'grab', 'important');
     dragHandle.style.setProperty('z-index', '10', 'important');
@@ -296,15 +299,16 @@
       container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('bottom', currentPos.bottom + 'px', 'important');
       container.style.setProperty('right', currentPos.right + 'px', 'important');
-      container.style.removeProperty('border-radius');
+      container.style.setProperty('border-radius', '50%', 'important');
       container.style.setProperty('pointer-events', 'none', 'important');
       container.style.setProperty('background', 'transparent', 'important');
       container.style.setProperty('background-color', 'transparent', 'important');
       container.style.setProperty('box-shadow', 'none', 'important');
-      container.style.setProperty('overflow', 'visible', 'important');
+      container.style.setProperty('overflow', 'hidden', 'important');
 
       if (iframe) {
-        iframe.style.removeProperty('border-radius');
+        iframe.style.setProperty('border-radius', '50%', 'important');
+        iframe.style.setProperty('overflow', 'hidden', 'important');
         iframe.style.setProperty('pointer-events', 'auto', 'important');
         iframe.style.setProperty('box-shadow', 'none', 'important');
       }
