@@ -308,6 +308,32 @@
         iframe.style.setProperty('pointer-events', 'auto', 'important');
         iframe.style.setProperty('box-shadow', 'none', 'important');
       }
+
+      // Re-dispatch host's dark theme color (#020617) and refresh root viewport meta tag & scroll
+      try {
+        let metaTheme = document.querySelector('meta[name="theme-color"]');
+        if (!metaTheme) {
+          metaTheme = document.createElement('meta');
+          metaTheme.setAttribute('name', 'theme-color');
+          document.head.appendChild(metaTheme);
+        }
+        metaTheme.setAttribute('content', '#020617');
+
+        // Restore native root scrolling
+        document.documentElement.style.removeProperty('overflow');
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('position');
+        document.body.style.removeProperty('touch-action');
+
+        // Refresh viewport meta tag for mobile Safari & Chrome
+        let vp = document.querySelector('meta[name="viewport"]');
+        if (vp) {
+          let vpContent = vp.getAttribute('content') || '';
+          if (!vpContent.includes('viewport-fit=cover')) {
+            vp.setAttribute('content', vpContent + (vpContent ? ', ' : '') + 'viewport-fit=cover');
+          }
+        }
+      } catch (e) {}
     }
     
     if (event.data === 'LORA_WIDGET_OPENED') {
@@ -335,6 +361,20 @@
           iframe.style.setProperty('border-radius', '0', 'important');
           iframe.style.setProperty('overflow', 'hidden', 'important');
         }
+
+        // Lock background host scroll while open on mobile and set theme-color to header color
+        try {
+          document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+          document.body.style.setProperty('overflow', 'hidden', 'important');
+          
+          let metaTheme = document.querySelector('meta[name="theme-color"]');
+          if (!metaTheme) {
+            metaTheme = document.createElement('meta');
+            metaTheme.setAttribute('name', 'theme-color');
+            document.head.appendChild(metaTheme);
+          }
+          metaTheme.setAttribute('content', '#8B2D75');
+        } catch (e) {}
       } else {
         // Floating popup card on desktop with modern 20px radius and shadow
         const OPEN_WIDTH = 385;

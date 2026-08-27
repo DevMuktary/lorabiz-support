@@ -54,7 +54,20 @@ export default function SupportWidget() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const getInitialTheme = (): 'light' | 'dark' => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const urlTheme = params.get('theme');
+        if (urlTheme === 'dark' || urlTheme === 'light') return urlTheme;
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+        if (document.documentElement.classList.contains('dark')) return 'dark';
+      } catch (e) {}
+    }
+    return 'dark'; // default to dark if host is dark
+  };
+
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const [soundMuted, setSoundMutedState] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
 
@@ -115,6 +128,17 @@ export default function SupportWidget() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+
+    // Set or update <meta name="theme-color"> in widget head
+    try {
+      let metaThemeColor = document.querySelector("meta[name='theme-color']");
+      if (!metaThemeColor) {
+        metaThemeColor = document.createElement('meta');
+        metaThemeColor.setAttribute('name', 'theme-color');
+        document.head.appendChild(metaThemeColor);
+      }
+      metaThemeColor.setAttribute('content', theme === 'dark' ? '#080E21' : '#8B2D75');
+    } catch (e) {}
   }, [theme]);
 
   useEffect(() => {
@@ -589,8 +613,15 @@ export default function SupportWidget() {
             </div>
           )}
 
-          {/* 🌟 Modern Brand Header 🌟 */}
-          <div className="bg-gradient-to-r from-[#8B2D75] via-[#7B2467] to-[#691C56] px-4 sm:px-5 py-3.5 flex justify-between items-center text-white shrink-0 z-10 shadow-sm">
+          {/* 🌟 Modern Brand Header with Safe Area Insets 🌟 */}
+          <div 
+            style={{ 
+              paddingTop: 'max(env(safe-area-inset-top, 0px), 0.875rem)',
+              paddingLeft: 'max(env(safe-area-inset-left, 0px), 1rem)',
+              paddingRight: 'max(env(safe-area-inset-right, 0px), 1rem)'
+            }}
+            className="bg-gradient-to-r from-[#8B2D75] via-[#7B2467] to-[#691C56] pb-3.5 flex justify-between items-center text-white shrink-0 z-10 shadow-sm"
+          >
             <div className="flex items-center space-x-3 min-w-0">
               {(view === 'CHAT' || view === 'ONBOARDING') && (
                 <button 
@@ -1109,9 +1140,16 @@ export default function SupportWidget() {
                         </div>
                       </div>
                     ) : (
-                      <div className={`p-3 sm:p-3.5 border-t shrink-0 pb-safe z-10 ${
-                        isDark ? 'bg-[#0E1A38] border-white/10' : 'bg-white border-slate-200'
-                      }`}>
+                      <div 
+                        style={{
+                          paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 0.75rem)',
+                          paddingLeft: 'max(env(safe-area-inset-left, 0px), 0.75rem)',
+                          paddingRight: 'max(env(safe-area-inset-right, 0px), 0.75rem)',
+                        }}
+                        className={`pt-3 border-t shrink-0 z-10 ${
+                          isDark ? 'bg-[#0E1A38] border-white/10' : 'bg-white border-slate-200'
+                        }`}
+                      >
                         {selectedFile && (
                           <div className={`mb-2.5 relative flex items-center rounded-xl p-2.5 pr-8 text-[12px] font-medium w-full shadow-2xs border ${
                             isDark ? 'bg-[#080E21] border-white/10 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
