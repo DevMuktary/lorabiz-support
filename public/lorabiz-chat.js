@@ -2,7 +2,7 @@
   if (window.LORA_INIT_WIDGET) return;
 
   const STORAGE_POS_KEY = 'lorabiz_support_widget_pos';
-  const CLOSED_SIZE = 60; // Exact size matching 60px launcher button
+  const CLOSED_SIZE = 72; // Sized with breathing space so unread badges on the launcher button shoulder are never clipped
 
   function getSavedPosition() {
     try {
@@ -90,7 +90,6 @@
     container.style.setProperty('z-index', '2147483647', 'important'); 
     container.style.setProperty('border', 'none', 'important');
     container.style.setProperty('outline', 'none', 'important');
-    container.style.setProperty('border-radius', '50%', 'important');
     container.style.setProperty('background', 'transparent', 'important');
     container.style.setProperty('background-color', 'transparent', 'important');
     container.style.setProperty('box-shadow', 'none', 'important');
@@ -115,18 +114,17 @@
     iframe.style.setProperty('box-sizing', 'border-box', 'important');
     iframe.style.setProperty('border', 'none', 'important');
     iframe.style.setProperty('outline', 'none', 'important');
-    iframe.style.setProperty('border-radius', '50%', 'important');
     iframe.style.setProperty('background', 'transparent', 'important');
     iframe.style.setProperty('background-color', 'transparent', 'important');
     iframe.style.setProperty('pointer-events', 'auto', 'important'); 
     iframe.style.setProperty('color-scheme', 'inherit', 'important');
     iframe.style.setProperty('display', 'block', 'important');
 
-    // Drag Handle Overlay on top of iframe launcher bubble when closed
+    // Drag Handle Overlay matching the 60px centered circular launcher
     const dragHandle = document.createElement('div');
     dragHandle.id = 'lorabiz-drag-overlay';
     dragHandle.style.setProperty('position', 'absolute', 'important');
-    dragHandle.style.setProperty('inset', '0', 'important');
+    dragHandle.style.setProperty('inset', '6px', 'important');
     dragHandle.style.setProperty('border-radius', '50%', 'important');
     dragHandle.style.setProperty('cursor', 'grab', 'important');
     dragHandle.style.setProperty('z-index', '10', 'important');
@@ -298,7 +296,7 @@
       container.style.setProperty('height', CLOSED_SIZE + 'px', 'important');
       container.style.setProperty('bottom', currentPos.bottom + 'px', 'important');
       container.style.setProperty('right', currentPos.right + 'px', 'important');
-      container.style.setProperty('border-radius', '50%', 'important');
+      container.style.removeProperty('border-radius');
       container.style.setProperty('pointer-events', 'none', 'important');
       container.style.setProperty('background', 'transparent', 'important');
       container.style.setProperty('background-color', 'transparent', 'important');
@@ -306,7 +304,7 @@
       container.style.setProperty('overflow', 'visible', 'important');
 
       if (iframe) {
-        iframe.style.setProperty('border-radius', '50%', 'important');
+        iframe.style.removeProperty('border-radius');
         iframe.style.setProperty('pointer-events', 'auto', 'important');
         iframe.style.setProperty('box-shadow', 'none', 'important');
       }
