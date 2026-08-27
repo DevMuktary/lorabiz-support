@@ -358,17 +358,17 @@
         container.style.setProperty('max-width', '420px', 'important');
         container.style.setProperty('height', 'min(580px, calc(100dvh - 76px))', 'important');
         container.style.setProperty('max-height', 'calc(100dvh - 76px)', 'important');
-        container.style.setProperty('border-radius', '20px', 'important');
+        container.style.setProperty('border-radius', '22px', 'important');
         container.style.setProperty('box-shadow', '0 20px 45px -10px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.1), 0 8px 16px -4px rgba(0,0,0,0.08)', 'important');
         container.style.setProperty('overflow', 'hidden', 'important');
         container.style.setProperty('margin', '0 auto', 'important');
 
         if (iframe) {
-          iframe.style.setProperty('border-radius', '20px', 'important');
+          iframe.style.setProperty('border-radius', '22px', 'important');
           iframe.style.setProperty('overflow', 'hidden', 'important');
         }
       } else {
-        // Floating popup card on desktop with modern 20px radius and shadow
+        // Floating popup card on desktop with modern 22px radius and shadow
         const OPEN_WIDTH = 385;
         const OPEN_HEIGHT = 630;
 
@@ -391,12 +391,12 @@
         container.style.setProperty('max-height', 'calc(100vh - 30px)', 'important');
         container.style.setProperty('bottom', openBottom + 'px', 'important');
         container.style.setProperty('right', openRight + 'px', 'important');
-        container.style.setProperty('border-radius', '20px', 'important');
+        container.style.setProperty('border-radius', '22px', 'important');
         container.style.setProperty('box-shadow', '0 20px 45px -10px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.06), 0 8px 16px -4px rgba(0,0,0,0.04)', 'important');
         container.style.setProperty('overflow', 'hidden', 'important');
 
         if (iframe) {
-          iframe.style.setProperty('border-radius', '20px', 'important');
+          iframe.style.setProperty('border-radius', '22px', 'important');
           iframe.style.setProperty('overflow', 'hidden', 'important');
         }
       }

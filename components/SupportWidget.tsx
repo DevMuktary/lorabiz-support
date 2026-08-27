@@ -576,10 +576,10 @@ export default function SupportWidget() {
       )}
 
       {isOpen && (
-        <div className={`w-full h-full flex flex-col overflow-hidden pointer-events-auto rounded-[20px] transition-all relative overscroll-contain ${
+        <div className={`w-full h-full flex flex-col overflow-hidden pointer-events-auto rounded-[22px] transition-all relative overscroll-contain border ${
           isDark 
-            ? 'bg-[#0B132B] text-slate-100 border border-white/10 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]' 
-            : 'bg-white text-slate-900 border border-slate-200/80 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.18)]'
+            ? 'bg-[#0B132B] text-slate-100 border-white/12 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.06)]' 
+            : 'bg-white text-slate-900 border-slate-200/90 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)]'
         }`}>
           
           {/* Custom Dialog Alert/Confirm */}
@@ -613,14 +613,14 @@ export default function SupportWidget() {
             </div>
           )}
 
-          {/* 🌟 Modern Brand Header with Safe Area Insets 🌟 */}
+          {/* 🌟 Modern Brand Header with Safe Area Insets & Rounded Top Rim 🌟 */}
           <div 
             style={{ 
               paddingTop: 'max(env(safe-area-inset-top, 0px), 0.875rem)',
               paddingLeft: 'max(env(safe-area-inset-left, 0px), 1rem)',
               paddingRight: 'max(env(safe-area-inset-right, 0px), 1rem)'
             }}
-            className="bg-gradient-to-r from-[#8B2D75] via-[#7B2467] to-[#691C56] pb-3.5 flex justify-between items-center text-white shrink-0 z-10 shadow-sm"
+            className="bg-gradient-to-r from-[#8B2D75] via-[#7B2467] to-[#691C56] pb-3.5 flex justify-between items-center text-white shrink-0 z-10 shadow-sm rounded-t-[21px]"
           >
             <div className="flex items-center space-x-3 min-w-0">
               {(view === 'CHAT' || view === 'ONBOARDING') && (
@@ -634,8 +634,10 @@ export default function SupportWidget() {
               )}
               
               <div className="relative shrink-0">
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center ring-2 ring-white/30 overflow-hidden">
-                  <img src="/support.png" alt="LoraBiz" className="w-full h-full object-cover" />
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center ring-1 ring-white/40 shadow-xs">
+                  <svg className="w-4.5 h-4.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
                 </div>
                 <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-[#8B2D75] rounded-full"></span>
               </div>
@@ -687,10 +689,12 @@ export default function SupportWidget() {
           {/* Loading State */}
           {isInitializing ? (
              <div className={`flex-1 flex flex-col items-center justify-center space-y-4 p-6 ${isDark ? 'bg-[#080E21]' : 'bg-slate-50'}`}>
-               <div className={`w-16 h-16 rounded-full flex items-center justify-center p-1.5 shadow-sm border animate-pulse ${
-                 isDark ? 'bg-[#0E1A38] border-white/10' : 'bg-white border-slate-200'
+               <div className={`w-16 h-16 rounded-full flex items-center justify-center p-3.5 shadow-md border ${
+                 isDark ? 'bg-gradient-to-br from-[#8B2D75] to-[#6E1A5B] border-white/20 text-white' : 'bg-gradient-to-br from-[#8B2D75] to-[#6E1A5B] border-transparent text-white'
                }`}>
-                  <img src="/support.png" alt="Loading" className="w-full h-full object-contain opacity-80" />
+                  <svg className="w-8 h-8 text-white animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
                </div>
                <div className="text-center">
                  <h2 className={`text-[15px] font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Connecting to Support...</h2>
@@ -715,10 +719,12 @@ export default function SupportWidget() {
                       : 'bg-white border-slate-200/80 text-slate-900'
                   }`}>
                     <div className="flex items-center gap-3.5">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border shadow-xs p-1 ${
-                        isDark ? 'bg-[#080E21] border-white/15' : 'bg-slate-50 border-slate-200'
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 border shadow-xs bg-gradient-to-br from-[#8B2D75] to-[#6E1A5B] ${
+                        isDark ? 'border-white/20 text-white' : 'border-transparent text-white'
                       }`}>
-                        <img src="/support.png" alt="Agent" className="w-full h-full object-cover rounded-full" />
+                        <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
                       </div>
                       <div>
                         <h2 className="text-[17px] font-extrabold tracking-tight">
@@ -1211,29 +1217,27 @@ export default function SupportWidget() {
         </div>
       )}
 
-      {/* 🔘 CIRCULAR LAUNCHER BUTTON (CLOSED STATE) 🔘 */}
+      {/* 🔘 ZOHO SALESIQ STYLE CIRCULAR LAUNCHER BUTTON 🔘 */}
       {!isOpen && (
         <div className="w-full h-full flex items-center justify-center bg-transparent pointer-events-auto select-none p-0 m-0 border-0 outline-none overflow-hidden rounded-full">
           <button
             onClick={() => toggleWidget(true)}
             aria-label="Open support chat"
-            className="group relative w-full h-full rounded-full border-0 flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none overflow-hidden bg-gradient-to-tr from-[#8B2D75] via-[#9F2B85] to-[#6E1A5B] shadow-[0_4px_16px_rgba(139,45,117,0.45)] ring-2 ring-white/20"
+            className="group relative w-full h-full rounded-full border-0 flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer p-0 select-none outline-none overflow-hidden bg-gradient-to-tr from-[#8B2D75] via-[#A02882] to-[#6E1A5B] shadow-[0_8px_24px_rgba(139,45,117,0.5)] ring-2 ring-white/20 hover:ring-white/40"
           >
-            {/* Inner avatar container with seamless rounded crop */}
-            <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center p-0 bg-transparent">
-              <img 
-                src="/support.png" 
-                alt="LoraBiz Support" 
-                className="w-full h-full object-cover rounded-full select-none pointer-events-none" 
-              />
+            {/* Zoho SalesIQ crisp vector chat & support icon (Zero white box) */}
+            <div className="w-full h-full rounded-full flex items-center justify-center relative">
+              <svg className="w-7 h-7 text-white transition-transform duration-300 group-hover:scale-110" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
             </div>
 
             {/* Online pulsing green indicator */}
-            <span className="absolute bottom-1 right-1 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full shadow-xs ring-1 ring-emerald-500/20" title="Agent Online"></span>
+            <span className="absolute bottom-1.5 right-1.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-xs ring-1 ring-emerald-500/30" title="Support Online"></span>
             
-            {/* Dynamic Unread Number Badge - perched clearly at top-right neck */}
+            {/* Dynamic Unread Number Badge */}
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 min-w-[19px] h-[19px] px-1 bg-gradient-to-r from-red-500 via-rose-500 to-red-600 border-2 border-white shadow-[0_2px_6px_rgba(0,0,0,0.35)] rounded-full flex items-center justify-center text-[10px] font-black text-white leading-none animate-bounce z-20">
+              <span className="absolute top-1 right-1 min-w-[20px] h-[20px] px-1 bg-gradient-to-r from-red-500 via-rose-500 to-red-600 border-2 border-white shadow-[0_2px_6px_rgba(0,0,0,0.4)] rounded-full flex items-center justify-center text-[10px] font-black text-white leading-none animate-bounce z-20">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
