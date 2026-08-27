@@ -576,7 +576,7 @@ export default function SupportWidget() {
       )}
 
       {isOpen && (
-        <div className={`w-full h-full flex flex-col overflow-hidden pointer-events-auto sm:rounded-[20px] transition-all relative overscroll-contain ${
+        <div className={`w-full h-full flex flex-col overflow-hidden pointer-events-auto rounded-[20px] transition-all relative overscroll-contain ${
           isDark 
             ? 'bg-[#0B132B] text-slate-100 border border-white/10 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)]' 
             : 'bg-white text-slate-900 border border-slate-200/80 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.18)]'

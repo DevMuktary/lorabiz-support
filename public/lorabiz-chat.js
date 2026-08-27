@@ -349,36 +349,24 @@
       container.style.setProperty('pointer-events', 'auto', 'important');
 
       if (window.innerWidth <= 640) {
-        // Fullscreen on mobile devices
-        container.style.removeProperty('bottom');
-        container.style.removeProperty('right');
-        container.style.setProperty('top', '0', 'important');
-        container.style.setProperty('left', '0', 'important');
-        container.style.setProperty('width', '100%', 'important');
-        container.style.setProperty('height', '100%', 'important');
-        container.style.setProperty('max-width', '100%', 'important');
-        container.style.setProperty('max-height', '100%', 'important');
-        container.style.setProperty('border-radius', '0', 'important');
-        container.style.setProperty('box-shadow', 'none', 'important');
+        // Floating bottom card / modal on mobile (never pins top:0, leaves top breathing room, preserves native scroll)
+        container.style.removeProperty('top');
+        container.style.setProperty('bottom', '12px', 'important');
+        container.style.setProperty('left', '12px', 'important');
+        container.style.setProperty('right', '12px', 'important');
+        container.style.setProperty('width', 'calc(100vw - 24px)', 'important');
+        container.style.setProperty('max-width', '420px', 'important');
+        container.style.setProperty('height', 'min(580px, calc(100dvh - 76px))', 'important');
+        container.style.setProperty('max-height', 'calc(100dvh - 76px)', 'important');
+        container.style.setProperty('border-radius', '20px', 'important');
+        container.style.setProperty('box-shadow', '0 20px 45px -10px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.1), 0 8px 16px -4px rgba(0,0,0,0.08)', 'important');
         container.style.setProperty('overflow', 'hidden', 'important');
+        container.style.setProperty('margin', '0 auto', 'important');
+
         if (iframe) {
-          iframe.style.setProperty('border-radius', '0', 'important');
+          iframe.style.setProperty('border-radius', '20px', 'important');
           iframe.style.setProperty('overflow', 'hidden', 'important');
         }
-
-        // Lock background host scroll while open on mobile and set theme-color to header color
-        try {
-          document.documentElement.style.setProperty('overflow', 'hidden', 'important');
-          document.body.style.setProperty('overflow', 'hidden', 'important');
-          
-          let metaTheme = document.querySelector('meta[name="theme-color"]');
-          if (!metaTheme) {
-            metaTheme = document.createElement('meta');
-            metaTheme.setAttribute('name', 'theme-color');
-            document.head.appendChild(metaTheme);
-          }
-          metaTheme.setAttribute('content', '#8B2D75');
-        } catch (e) {}
       } else {
         // Floating popup card on desktop with modern 20px radius and shadow
         const OPEN_WIDTH = 385;
@@ -396,7 +384,7 @@
 
         container.style.removeProperty('top');
         container.style.removeProperty('left');
-        container.style.removeProperty('inset');
+        container.style.removeProperty('margin');
         container.style.setProperty('width', OPEN_WIDTH + 'px', 'important'); 
         container.style.setProperty('height', OPEN_HEIGHT + 'px', 'important'); 
         container.style.setProperty('max-width', 'calc(100vw - 20px)', 'important');
